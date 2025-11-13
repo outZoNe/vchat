@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <meta charset="UTF-8">
+    <title>Urina VChat</title>
+    <style>
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        font-family: sans-serif;
+        background: #f5f5f5;
+      }
+
+      #videos {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      .video-container {
+        position: relative;
+      }
+
+      video {
+        width: 300px;
+        height: 200px;
+        background: black;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: transform 0.3s;
+      }
+
+      .username-label {
+        position: absolute;
+        bottom: 5px;
+        left: 5px;
+        background: rgba(0, 0, 0, 0.5);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+
+      button {
+        margin: 5px;
+        padding: 10px 20px;
+        font-size: 16px;
+      }
+
+      #usernameInput {
+        margin-bottom: 10px;
+        padding: 6px;
+        font-size: 16px;
+        width: 200px;
+      }
+
+      .username-inputs {
+        display: flex;
+        margin: auto;
+        width: 30%;
+      }
+
+      .saveUsernameBtn-input {
+        font-size: 16px;
+        height: 34px;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+</head>
+<body>
+<h2>Мне пох я так чувствую!)</h2>
+
+<div class="username-inputs">
+    <input type="text" id="usernameInput" placeholder="Введите имя (1-15 символов)" maxlength="15">
+    <button id="saveUsernameBtn" class="saveUsernameBtn-input">Save</button>
+</div>
+
+<div id="videos">
+    <div class="video-container" id="local-container">
+        <video id="localVideo" autoplay muted playsinline controls></video>
+        <div id="localUsernameLabel" class="username-label">Anonymous</div>
+    </div>
+</div>
+
+<div>
+    <button id="toggleAudioBtn">ПОДКЛЮЧИТЬСЯ</button>
+    <button id="toggleVideoBtn">Включить камеру</button>
+    <button id="shareScreenBtn">Поделиться экраном</button>
+</div>
+
+<script>
+  // ==================== INITIALIZATION ====================
+  const ws = new WebSocket("wss://" + window.location.host + "/ws");
+  const servers = {
+    iceServers: [
+      {urls: "stun:87.251.87.161:3478"},
+      {urls: "turn:87.251.87.161:3478", username: "roman", credential: "1234"}
+    ]
+  };
+
+  // ==================== STATE ====================
+  const pcs = {};
+  let localStream = null;
+  const tracks = {audio: null, video: null, screen: null};
+  const currentTracks = {audio: null, video: null, screen: null};
+  const iceCandidateBuffer = {};
+  const remoteUsernames = {}; // хранит username по peerId
+
+  let myId = null;
+  let myUsername = "Anonymous";
+  let playbackEnabled = false;
+  const audioContext = (window.AudioContext || window.webkitAudioContext) ? new (window.AudioContext || window.webkitAudioContext)() : null;
+
+  // ==================== USERNAME MANAGEMENT ====================
+  let username = localStorage.getItem("myUsername") || "Anonymous";
+  document.getElementById("usernameInput").value = username;
+  document.getElementById("localUsernameLabel").textContent = username;
+
+  document.getElementById("saveUsernameBtn").onclick = () => {
+    const input = document.getElementById("usernameInput");
+    const val = input.value.trim().slice(0, 15);
+    if (val.length < 1) {
+      alert("Имя должно быть от 1 до 15 символов");
+      return;
+    }
+    username = val;
+    localStorage.setItem("myUsername", username);
+
+    // Обновляем label если он существует
+    const labelEl = document.getElementById("localUsernameLabel");
+    if (labelEl) {
+      labelEl.textContent = username;
+    }
+
+    console.log("Username saved:", username);
+
+    // Отправляем на сервер
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({type: "update-username", username}));
+      console.log("Sent username to server:", username);
+    }
+  };
+
+  document.getElementById("usernameInput").onkeypress = (e) => {
+    if (e.key === "Enter") {
+      document.getElementById("saveUsernameBtn").click();
+    }
+  };
+
+  function setRemoteUsername(peerId, name) {
+    // сохраняем в кэше, чтобы применить при создании контейнера, если его ещё нет
+    remoteUsernames[peerId] = name;
+    const label = document.getElementById("label-" + peerId);
+    if (label) {
+      label.textContent = name;
+      console.log("Updated remote username for", peerId, ":", name);
+    } else {
+      console.log("Saved remote username for", peerId, "to apply on container creation");
+    }
+  }
+
+  // ==================== SIGNALING ====================
+  ws.onmessage = async (e) => {
+    const msg = JSON.parse(e.data);
+    await handleMessage(msg);
+  };
+
+  ws.onclose = () => {
+    console.log("WS closed, scheduling reconnect");
+    let attempt = 0;
+    const tryReconnect = () => {
+      attempt++;
+      const delay = Math.min(30_000, 500 * Math.pow(2, attempt));
+      setTimeout(() => {
+        console.log("Reconnecting ws attempt", attempt);
+        window.location.reload();
+      }, delay);
+    };
+    tryReconnect();
+  };
+
+  async function handleMessage(msg) {
+    // special: screen-stopped (notify to clear frozen frame)
+    if (msg.type === "screen-stopped") {
+      const from = msg.from;
+      console.log("Received screen-stopped from", from);
+      clearRemoteVideoElement(from);
+      return;
+    }
+
+    if (msg.type === "set-id") {
+      myId = msg.id;
+      console.log("My ID:", myId);
+
+      // Загружаем сохранённый ник и отправляем его сразу на сервер
+      const savedUsername = localStorage.getItem("myUsername") || "Anonymous";
+      username = savedUsername;
+      document.getElementById("usernameInput").value = savedUsername;
+
+      const labelEl = document.getElementById("localUsernameLabel");
+      if (labelEl) {
+        labelEl.textContent = savedUsername;
+      }
+
+      // Отправляем ник собеседникам
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "update-username", username: savedUsername }));
+        console.log("Sent saved username on connect:", savedUsername);
+      }
+      return;
+    }
+
+    if (msg.type === "existing-participants") {
+      // Получили список уже подключённых участников с их именами
+      console.log("Received existing participants:", msg.participants);
+      for (const p of msg.participants) {
+        remoteUsernames[p.id] = p.username;
+        console.log("Cached username for", p.id, ":", p.username);
+      }
+      return;
+    }
+
+    if (msg.type === "ping") {
+      ws.send(JSON.stringify({ type: "pong", ts: msg.ts }));
+      return;
+    }
+
+    if (msg.type === "update-username") {
+      console.log("Username update from", msg.from, ":", msg.username);
+      setRemoteUsername(msg.from, msg.username);
+      return;
+    }
+
+    if (msg.type === "new-participant") {
+      console.log("New participant joined:", msg.id);
+      rebuildAllPeerConnections(msg.id).catch(e => console.error("Rebuild failed:", e));
+      if (msg.username) setRemoteUsername(msg.id, msg.username);
+      return;
+    } else if (msg.type === "offer") {
+      const pc = await createPeerConnection(msg.from, false);
+      try {
+        const offerCollision = pc.makingOffer || pc.signalingState !== "stable";
+        pc.ignoreOffer = !pc.polite && offerCollision;
+        if (pc.ignoreOffer) {
+          console.log("Ignored offer (glare) from", msg.from, {offerCollision, polite: pc.polite});
+          delete iceCandidateBuffer[msg.from];
+          return;
+        }
+
+        console.log("Accepting offer from", msg.from, "signalingState:", pc.signalingState);
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        console.log("  setRemoteDescription done");
+
+        if (iceCandidateBuffer[msg.from] && iceCandidateBuffer[msg.from].length) {
+          for (const candidateInit of iceCandidateBuffer[msg.from]) {
+            if (!candidateInit || !candidateInit.candidate) continue;
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(candidateInit));
+            } catch (err) {
+              console.warn("Discarding buffered ICE candidate (failed to add):", err, candidateInit);
+            }
+          }
+          delete iceCandidateBuffer[msg.from];
+        }
+
+        const answer = await pc.createAnswer();
+        console.log("  createAnswer done");
+        await pc.setLocalDescription(answer);
+        console.log("  setLocalDescription done");
+        ws.send(JSON.stringify({type: "answer", answer, to: msg.from}));
+        console.log("  answer sent to", msg.from);
+      } catch (err) {
+        console.error("Error handling offer:", err);
+      }
+    } else if (msg.type === "answer") {
+      const pc = pcs[msg.from];
+      if (pc) {
+        try {
+          if (pc.signalingState === "have-local-offer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+            if (iceCandidateBuffer[msg.from] && iceCandidateBuffer[msg.from].length) {
+              for (const candidateInit of iceCandidateBuffer[msg.from]) {
+                if (!candidateInit || !candidateInit.candidate) continue;
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(candidateInit));
+                } catch (err) {
+                  console.warn("Discarding buffered ICE candidate after answer:", err, candidateInit);
+                }
+              }
+              delete iceCandidateBuffer[msg.from];
+            }
+          } else {
+            console.warn("Received answer but signalingState != have-local-offer:", pc.signalingState, "from", msg.from);
+          }
+        } catch (err) {
+          console.error("Error handling answer:", err);
+        }
+      }
+    } else if (msg.type === "candidate") {
+      if (!msg.candidate || typeof msg.candidate !== "object" || !msg.from) return;
+
+      const pc = pcs[msg.from];
+
+      if (pc && pc.ignoreOffer) {
+        console.log("Dropping candidate while ignoreOffer=true from", msg.from);
+        return;
+      }
+
+      if (!pc) {
+        if (!iceCandidateBuffer[msg.from]) iceCandidateBuffer[msg.from] = [];
+        iceCandidateBuffer[msg.from].push(msg.candidate);
+        return;
+      }
+
+      if (!pc.remoteDescription || !pc.remoteDescription.type) {
+        if (!iceCandidateBuffer[msg.from]) iceCandidateBuffer[msg.from] = [];
+        iceCandidateBuffer[msg.from].push(msg.candidate);
+        return;
+      }
+
+      try {
+        const c = msg.candidate;
+        if (!c.candidate) return;
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+      } catch (err) {
+        console.warn("Error adding ICE candidate:", err, msg.candidate);
+      }
+    } else if (msg.type === "participant-left") {
+      if (pcs[msg.id]) {
+        pcs[msg.id].close();
+        delete pcs[msg.id];
+      }
+      delete iceCandidateBuffer[msg.id];
+      delete remoteUsernames[msg.id];
+      const container = document.getElementById("container-" + msg.id);
+      if (container) container.remove();
+    }
+  }
+
+  // helper to clear frozen remote video element
+  function clearRemoteVideoElement(peerId) {
+    try {
+      const vid = document.getElementById("remoteVideo-" + peerId);
+      const audioEl = document.getElementById("remoteAudio-" + peerId);
+      const container = document.getElementById("container-" + peerId);
+      if (audioEl) {
+        try { audioEl.pause(); } catch(e){}
+        try { audioEl.srcObject = null; } catch(e){}
+        try { audioEl.remove(); } catch(e){}
+      }
+      if (vid) {
+        try { vid.pause(); } catch(e){}
+        try { vid.srcObject = null; } catch(e){}
+        try { vid.removeAttribute('src'); vid.load(); } catch(e){}
+      }
+    } catch (e) {
+      console.warn("clearRemoteVideoElement failed:", e);
+    }
+  }
+
+  // ==================== PEER CONNECTION ====================
+  async function addTrackToPeer(pc, track, kindLabel = "auto") {
+    try {
+      let kind = track.kind;
+      const senders = pc.getSenders();
+      let sender = senders.find(s => s.track && s.track.kind === kind);
+
+      if (sender) {
+        await sender.replaceTrack(track);
+        console.log("replaceTrack:", kind, track.id, "on", pc.peerId);
+      } else {
+        pc.addTrack(track, localStream);
+        console.log("addTrack:", kind, track.id, "to", pc.peerId);
+      }
+
+      if (!pc.polite) {
+        await new Promise(r => setTimeout(r, 100));
+
+        if (pc.signalingState === "stable" && !pc.makingOffer && !pc.ignoreOffer) {
+          pc.makingOffer = true;
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            ws.send(JSON.stringify({type: "offer", offer: pc.localDescription, to: pc.peerId}));
+            console.log("Offer sent by impolite peer after track change for", kind);
+          } catch (err) {
+            console.error("Error creating offer after track change:", err);
+          } finally {
+            pc.makingOffer = false;
+          }
+        }
+      } else {
+        console.log("polite peer waits for onnegotiationneeded");
+      }
+    } catch (err) {
+      console.error("addTrackToPeer error:", err);
+    }
+  }
+
+  async function addTrackToAllPeers(track, kindLabel = "auto") {
+    const kind = track.kind;
+    console.log("addTrackToAllPeers: updating", kind, "track to", Object.keys(pcs).length, "peers");
+
+    currentTracks[kind] = track;
+
+    for (const id in pcs) {
+      const pc = pcs[id];
+      try {
+        await addTrackToPeer(pc, track, kindLabel);
+      } catch (err) {
+        console.error("addTrackToAllPeers error for", id, err);
+      }
+    }
+    console.log("addTrackToAllPeers: done");
+  }
+
+  async function removeTrackFromAllPeers(track, kindLabel = "auto") {
+    const kind = track.kind;
+    console.log("removeTrackFromAllPeers:", kind, "from", Object.keys(pcs).length, "peers");
+
+    for (const id in pcs) {
+      const pc = pcs[id];
+      if (!pc) continue;
+      try {
+        const senders = pc.getSenders();
+        const sender = senders.find(s => s.track && s.track.kind === kind);
+        if (sender) {
+          await sender.replaceTrack(null);
+          console.log("replaceTrack(null):", kind, "on", id);
+
+          if (!pc.polite) {
+            await new Promise(r => setTimeout(r, 100));
+            if (pc.signalingState === "stable" && !pc.makingOffer) {
+              pc.makingOffer = true;
+              try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                ws.send(JSON.stringify({type: "offer", offer: pc.localDescription, to: id}));
+              } finally {
+                pc.makingOffer = false;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("removeTrackFromAllPeers error:", err);
+      }
+    }
+  }
+
+  async function createPeerConnection(id, isCaller) {
+    if (pcs[id]) return pcs[id];
+
+    const pc = new RTCPeerConnection(servers);
+    pc.peerId = id;
+    pc.polite = (myId !== null) ? (myId > id) : false;
+    pc.makingOffer = false;
+    pc.ignoreOffer = false;
+    pcs[id] = pc;
+
+    console.log("Creating pc for", id, "polite:", pc.polite);
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        console.log("onnegotiationneeded for", id, "state:", pc.signalingState);
+        if (!pc.polite) {
+          console.log("  impolite, skipping auto-offer");
+          return;
+        }
+
+        pc.makingOffer = true;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        ws.send(JSON.stringify({type: "offer", offer: pc.localDescription, to: id}));
+        console.log("  polite sent offer");
+      } catch (err) {
+        console.error("Negotiation error:", err);
+      } finally {
+        pc.makingOffer = false;
+      }
+    };
+
+    let container = document.getElementById("container-" + id);
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "video-container";
+      container.id = "container-" + id;
+      const video = document.createElement("video");
+      video.id = "remoteVideo-" + id;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.controls = true;
+      const label = document.createElement("div");
+      label.id = "label-" + id;
+      label.className = "username-label";
+      // если имя уже известно — сразу показать
+      if (remoteUsernames[id]) label.textContent = remoteUsernames[id];
+      container.appendChild(video);
+      container.appendChild(label);
+      document.getElementById("videos").appendChild(container);
+    }
+
+    pc.ontrack = e => {
+      try {
+        console.log("ontrack:", {peer: id, kind: e.track.kind, streams: e.streams && e.streams.length});
+        const stream = (e.streams && e.streams[0]) || new MediaStream([e.track]);
+
+        // Attach onended handlers both to the single incoming track and to each videoTrack in stream
+        try {
+          if (e.track) {
+            e.track.onended = () => {
+              console.log("Remote track ended for", id, "kind:", e.track.kind);
+              if (e.track.kind === 'video') clearRemoteVideoElement(id);
+            };
+          }
+          stream.getVideoTracks().forEach(t => {
+            // protect against reassigning handler
+            try {
+              t.onended = () => {
+                console.log("Remote stream video track ended for", id);
+                clearRemoteVideoElement(id);
+              };
+            } catch (er) { /* ignore */ }
+          });
+        } catch (er) { console.warn("failed to attach onended handlers", er); }
+
+        const hasAudio = stream.getAudioTracks().length > 0;
+        const hasVideo = stream.getVideoTracks().length > 0;
+
+        if (hasAudio && !hasVideo) {
+          let audioEl = document.getElementById("remoteAudio-" + id);
+          if (!audioEl) {
+            audioEl = document.createElement("audio");
+            audioEl.id = "remoteAudio-" + id;
+            audioEl.autoplay = true;
+            audioEl.playsInline = true;
+            audioEl.controls = false;
+            audioEl.muted = !playbackEnabled;
+            audioEl.volume = 1.0;
+            const container = document.getElementById("container-" + id) || document.getElementById("videos");
+            container.appendChild(audioEl);
+          }
+          audioEl.srcObject = stream;
+          audioEl.play().catch(err => { /* ignored until user gesture */ });
+          console.log("ontrack: attached audio element for", id, "tracks:", stream.getAudioTracks().map(t => t.id));
+        } else {
+          let video = document.getElementById("remoteVideo-" + id);
+          if (!video) {
+            video = document.createElement("video");
+            video.id = "remoteVideo-" + id;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.controls = true;
+            const container = document.getElementById("container-" + id) || document.getElementById("videos");
+            container.appendChild(video);
+          } else {
+            // if placeholder exists, remove it — new stream arrived
+            const container = document.getElementById("container-" + id);
+            const ph = container && container.querySelector('.placeholder');
+            if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
+          }
+          video.srcObject = stream;
+          video.muted = false;
+          video.play().catch(err => console.warn("video.play() failed:", err));
+          console.log("ontrack: attached video element for", id, "audioTracks:", stream.getAudioTracks().length, "videoTracks:", stream.getVideoTracks().length);
+        }
+
+        try {
+          const rcv = pc.getReceivers().map(r => ({kind: r.track && r.track.kind, id: r.track && r.track.id}));
+          console.log("getReceivers:", rcv);
+        } catch (e) { /*ignore*/ }
+      } catch (err) {
+        console.error("ontrack handler error for", id, err);
+      }
+    };
+
+    pc.onicecandidate = e => {
+      if (e.candidate) ws.send(JSON.stringify({type: "candidate", candidate: e.candidate, to: id}));
+    };
+
+    if (currentTracks.audio) {
+      pc.addTrack(currentTracks.audio, localStream);
+      console.log("  added current audio track");
+    }
+    if (currentTracks.video) {
+      pc.addTrack(currentTracks.video, localStream);
+      console.log("  added current video track");
+    }
+    if (currentTracks.screen) {
+      pc.addTrack(currentTracks.screen, localStream);
+      console.log("  added current screen track");
+    }
+
+    if (isCaller) {
+      console.log("isCaller setup for", id);
+      setTimeout(async () => {
+        try {
+          if (pc.signalingState === "stable" && !pc.makingOffer) {
+            pc.makingOffer = true;
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            ws.send(JSON.stringify({type: "offer", offer: pc.localDescription, to: id}));
+            console.log("Initial offer sent for", id);
+          }
+        } catch (err) {
+          console.error("Initial offer error:", err);
+        } finally {
+          pc.makingOffer = false;
+        }
+      }, 500);
+    }
+
+    return pc;
+  }
+
+  // ==================== LOCAL CONTROLS ====================
+  document.getElementById("toggleAudioBtn").onclick = async () => {
+    try {
+      if (!tracks.audio) {
+        console.log("Requesting audio...");
+        const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
+        const aTrack = stream.getAudioTracks()[0];
+        if (!aTrack) {
+          console.error("No audio track from getUserMedia");
+          return;
+        }
+        if (!localStream) {
+          localStream = new MediaStream();
+          console.log("Created new localStream");
+        }
+        tracks.audio = aTrack;
+        localStream.addTrack(aTrack);
+        console.log("Added audio track to localStream, now localStream has", localStream.getTracks().length, "tracks");
+        document.getElementById("localVideo").srcObject = localStream;
+
+        await addTrackToAllPeers(tracks.audio, "audio");
+        console.log("Added audio to all peers");
+        document.getElementById("toggleAudioBtn").textContent = "Выключить микрофон";
+      } else {
+        tracks.audio.enabled = !tracks.audio.enabled;
+        document.getElementById("toggleAudioBtn").textContent = tracks.audio.enabled ? "Выключить микрофон" : "Включить микрофон";
+        console.log("Audio toggled, enabled:", tracks.audio.enabled);
+      }
+    } catch (err) {
+      console.error("Microphone toggle error:", err);
+      alert("Ошибка доступа к микрофону: " + (err && err.message));
+    }
+  };
+
+  document.getElementById("toggleVideoBtn").onclick = async () => {
+    try {
+      if (!tracks.video) {
+        console.log("Requesting video...");
+        const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: false});
+        const vTrack = stream.getVideoTracks()[0];
+        if (!vTrack) {
+          console.error("No video track from getUserMedia");
+          return;
+        }
+        if (!localStream) {
+          localStream = new MediaStream();
+          console.log("Created new localStream");
+        }
+        tracks.video = vTrack;
+        localStream.addTrack(vTrack);
+        console.log("Added video track to localStream, now localStream has", localStream.getTracks().length, "tracks");
+        document.getElementById("localVideo").srcObject = localStream;
+
+        await addTrackToAllPeers(tracks.video, "video");
+        console.log("Added video to all peers");
+        document.getElementById("toggleVideoBtn").textContent = "Выключить камеру";
+      } else {
+        tracks.video.enabled = !tracks.video.enabled;
+        document.getElementById("toggleVideoBtn").textContent = tracks.video.enabled ? "Выключить камеру" : "Включить камеру";
+        console.log("Video toggled, enabled:", tracks.video.enabled);
+      }
+    } catch (err) {
+      console.error("Video toggle error:", err);
+      alert("Ошибка доступа к камере: " + (err && err.message));
+    }
+  };
+
+  // ==================== SCREEN SHARE (fixed) ====================
+  async function stopScreenSharing() {
+    try {
+      if (!tracks.screen) return;
+      const sTrack = tracks.screen;
+
+      // отключаем обработчик onended чтобы не зайти в рекурсию
+      try { sTrack.onended = null; } catch (e) { /*ignore*/ }
+
+      // останавливаем трек
+      try { sTrack.stop(); } catch (e) { /*ignore*/ }
+
+      // удалить из localStream
+      if (localStream) {
+        try { localStream.removeTrack(sTrack); } catch (e) { /*ignore*/ }
+      }
+
+      // удалить из всех pcs
+      for (const id in pcs) {
+        const pc = pcs[id];
+        if (!pc) continue;
+        try {
+          const sender = pc.getSenders().find(s => s.track === sTrack);
+          if (sender) {
+            try { await sender.replaceTrack(null); } catch(e){/*ignore*/}
+          }
+        } catch(e){ console.warn("Failed to remove screen sender:", e); }
+      }
+
+      tracks.screen = null;
+      document.getElementById("shareScreenBtn").textContent = "Поделиться экраном";
+      console.log("Screen sharing stopped clean");
+
+      // уведомляем остальных, чтобы они очистили frozen frame
+      try {
+        if (ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "screen-stopped", from: myId }));
+        }
+      } catch (e) { console.warn("Failed to send screen-stopped:", e); }
+
+    } catch (err) {
+      console.error("stopScreenSharing error:", err);
+    }
+  }
+
+  document.getElementById("shareScreenBtn").onclick = async () => {
+    const btn = document.getElementById("shareScreenBtn");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      // если уже есть screen трек — сначала остановим
+      if (tracks.screen) {
+        await stopScreenSharing();
+        btn.disabled = false;
+        return;
+      }
+
+      console.log("Requesting new screen...");
+      const stream = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: 60}, audio: false});
+      const sTrack = stream.getVideoTracks()[0];
+      if (!sTrack) {
+        console.error("No screen track from getDisplayMedia");
+        btn.disabled = false;
+        return;
+      }
+
+      // добавляем новый трек
+      tracks.screen = sTrack;
+      if (!localStream) localStream = new MediaStream();
+      try { localStream.addTrack(sTrack); } catch(e){ /*ignore*/ }
+      document.getElementById("localVideo").srcObject = localStream;
+      await addTrackToAllPeers(sTrack, "screen");
+
+      sTrack.onended = () => {
+        console.log("Screen track ended (onended)");
+        stopScreenSharing().catch(e => console.error("stopScreenSharing failed:", e));
+      };
+
+      document.getElementById("shareScreenBtn").textContent = "Прекратить трансляцию экрана";
+    } catch (err) {
+      console.error("Screen share error:", err);
+      alert("Ошибка при общем доступе к экрану: " + (err && err.message));
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  // ==================== REBUILD & AUDIO PLAYBACK ====================
+  function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+
+  async function rebuildAllPeerConnections(newPeerId) {
+    try {
+      console.log("Rebuilding all peer connections (soft reconnect). New peer:", newPeerId);
+
+      const existing = Object.keys(pcs);
+      const allIds = Array.from(new Set([...existing, newPeerId].filter(Boolean)));
+
+      const videosEl = document.getElementById("videos");
+      const localVideoEl = document.getElementById("localVideo");
+      const localUsernameLabel = document.getElementById("localUsernameLabel");
+
+      // Сохраняем оба элемента
+      if (localVideoEl && localVideoEl.parentNode) {
+        localVideoEl.parentNode.removeChild(localVideoEl);
+      }
+      if (localUsernameLabel && localUsernameLabel.parentNode) {
+        localUsernameLabel.parentNode.removeChild(localUsernameLabel);
+      }
+
+      for (const id of existing) {
+        try {
+          pcs[id].close();
+        } catch (e) { /*ignore*/
+        }
+        delete pcs[id];
+      }
+
+      if (videosEl) {
+        videosEl.innerHTML = '';
+      }
+
+      // Восстанавливаем оба элемента
+      if (localVideoEl && videosEl) {
+        const localContainer = document.createElement('div');
+        localContainer.className = 'video-container';
+        localContainer.id = 'local-container';
+        localVideoEl.muted = true;
+        localContainer.appendChild(localVideoEl);
+
+        // Добавляем label обратно
+        if (localUsernameLabel) {
+          localContainer.appendChild(localUsernameLabel);
+        }
+
+        videosEl.appendChild(localContainer);
+      }
+
+      for (const id of allIds) {
+        if (!id || id === myId) continue;
+        const isCaller = (myId !== null) ? (myId < id) : false;
+        console.log("Recreating pc for", id, "isCaller:", isCaller);
+        await createPeerConnection(id, isCaller);
+        await sleep(150);
+      }
+
+      if (currentTracks && localStream) {
+        if (currentTracks.audio) await addTrackToAllPeers(currentTracks.audio, "audio");
+        if (currentTracks.video) await addTrackToAllPeers(currentTracks.video, "video");
+        if (currentTracks.screen) await addTrackToAllPeers(currentTracks.screen, "screen");
+      }
+
+      console.log("Rebuild done");
+    } catch (err) {
+      console.error("rebuildAllPeerConnections error:", err);
+    }
+  }
+
+  function enableAudioPlayback() {
+    if (playbackEnabled) return;
+    playbackEnabled = true;
+    console.log("User gesture detected — enabling audio playback");
+
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume().catch(e => console.warn("audioContext.resume() failed:", e));
+    }
+
+    document.querySelectorAll('audio').forEach(a => {
+      try {
+        a.muted = false;
+        const p = a.play();
+        if (p && p.catch) p.catch(() => {/* ignore */
+        });
+      } catch (e) { /* ignore */
+      }
+    });
+  }
+
+  ['click', 'touchstart', 'keydown'].forEach(ev =>
+    document.addEventListener(ev, enableAudioPlayback, {once: true, passive: true})
+  );
+</script>
+</body>
+</html>

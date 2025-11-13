@@ -1,3 +1,7 @@
+networks:
+  vchat_network:
+    driver: bridge
+
 services:
   web:
     build: .
@@ -7,6 +11,8 @@ services:
     depends_on:
       - coturn
     restart: unless-stopped
+    networks:
+      - vchat_network
 
   coturn:
     image: coturn/coturn
@@ -14,9 +20,9 @@ services:
     restart: unless-stopped
     command:
       - "--log-file=stdout"
-      - "--external-ip=$(detect-external-ip)"
+      - "--external-ip=87.251.87.161"   # <- укажите ваш публичный IP или удалите эту строку
       - "--listening-port=3478"
-      - "--realm=localhost"
+      - "--realm=87.251.87.161"
       - "--lt-cred-mech"
       - "--user=roman:1234"
       - "--no-cli"
@@ -25,3 +31,26 @@ services:
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"
+    networks:
+      - vchat_network
+
+  nginx:
+    image: nginx
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./public:/var/www/html
+      - ./docker/certbot/www:/var/www/certbot
+      - ./docker/certbot/conf/:/etc/nginx/ssl
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - vchat_network
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./docker/certbot/www/:/var/www/certbot/
+      - ./docker/certbot/conf/:/etc/letsencrypt/

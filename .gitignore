@@ -1,2 +1,7 @@
 .idea/
 node_modules/
+.DS_Store
+docker/certbot/www/**
+!docker/certbot/www/.gitkeep
+docker/certbot/conf/**
+!docker/certbot/conf/.gitkeep
