@@ -1,0 +1,27 @@
+services:
+  web:
+    build: .
+    container_name: webrtc_chat
+    ports:
+      - "8080:8080"
+    depends_on:
+      - coturn
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn
+    container_name: coturn_server
+    restart: unless-stopped
+    command:
+      - "--log-file=stdout"
+      - "--external-ip=$(detect-external-ip)"
+      - "--listening-port=3478"
+      - "--realm=localhost"
+      - "--lt-cred-mech"
+      - "--user=roman:1234"
+      - "--no-cli"
+      - "--no-tls"
+      - "--no-dtls"
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
