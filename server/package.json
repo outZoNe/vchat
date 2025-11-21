@@ -1,0 +1,17 @@
+{
+    "name": "vchat-server",
+    "version": "1.0.0",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "author": "Roman Sergeev",
+    "license": "MIT",
+    "description": "",
+    "dependencies": {
+        "express": "^4.21.1",
+        "uuid": "^13.0.0",
+        "ws": "^8.18.0"
+    }
+}

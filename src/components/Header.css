@@ -1,0 +1,244 @@
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: #2f3136;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.header-content {
+  width: 100%;
+  max-width: 100%;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    padding: 0 15px;
+  }
+}
+
+.burger-menu {
+  position: absolute;
+  left: 20px;
+  z-index: 2;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 30px;
+  height: 30px;
+  transition: transform 0.3s ease;
+}
+
+.burger-menu:hover {
+  transform: scale(1.1);
+}
+
+.burger-line {
+  width: 20px;
+  height: 3px;
+  background: white;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+  transform-origin: center;
+  margin: 3px 0;
+  position: relative;
+}
+
+.burger-line.open:nth-child(1) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+  margin: 0;
+}
+
+.burger-line.open:nth-child(2) {
+  opacity: 0;
+  transform: scaleX(0);
+}
+
+.burger-line.open:nth-child(3) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  margin: 0;
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  position: absolute;
+  left: 70px; /* Account for burger menu */
+  z-index: 1;
+}
+
+.header-logo h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .burger-menu {
+    left: 15px;
+  }
+
+  .header-logo {
+    left: 55px; /* Account for burger menu (15px + 30px + 10px gap) */
+  }
+
+  .header-logo h1 {
+    font-size: 1.2rem;
+  }
+}
+
+.header-username {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 0;
+  padding-left: 280px; /* Account for sidebar */
+  transition: padding-left 0.3s ease;
+}
+
+.noise-suppression-control {
+  display: flex;
+  align-items: center;
+}
+
+.noise-suppression-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  color: #dcddde;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: #40444b;
+  transition: background 0.3s ease;
+  white-space: nowrap;
+}
+
+.noise-suppression-label:hover {
+  background: #484c52;
+}
+
+.noise-suppression-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #5865f2;
+  flex-shrink: 0;
+}
+
+.noise-suppression-label span {
+  font-weight: 500;
+}
+
+@media (max-width: 768px) {
+  .noise-suppression-label span {
+    display: none;
+  }
+
+  .noise-suppression-label {
+    padding: 6px 8px;
+  }
+}
+
+.header-username.sidebar-collapsed {
+  padding-left: 0;
+}
+
+@media (max-width: 768px) {
+  .header-username {
+    padding-left: 0;
+    margin-left: auto;
+  }
+}
+
+#headerUsernameInput {
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  background: #40444b;
+  width: 200px;
+  min-width: 150px;
+  transition: border-color 0.3s, background 0.3s;
+  color: #dcddde;
+}
+
+@media (max-width: 768px) {
+  #headerUsernameInput {
+    width: 120px;
+    min-width: 100px;
+    font-size: 13px;
+    padding: 6px 10px;
+  }
+
+  .header-save-btn {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-username {
+    gap: 6px;
+  }
+
+  #headerUsernameInput {
+    width: 100px;
+    min-width: 80px;
+  }
+}
+
+#headerUsernameInput:focus {
+  outline: none;
+  border-color: #5865f2;
+  background: #484c52;
+}
+
+.header-save-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  border: none;
+  border-radius: 4px;
+  background: #5865f2;
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: bold;
+}
+
+.header-save-btn:hover {
+  background: #4752c4;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+

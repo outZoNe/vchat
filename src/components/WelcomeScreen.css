@@ -1,0 +1,89 @@
+.welcome-screen {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 80vh;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.welcome-content {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 40px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  text-align: center;
+  width: 100%;
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.welcome-content h1 {
+  color: #667eea;
+  margin-bottom: 15px;
+  font-size: 2.5em;
+  text-shadow: none;
+}
+
+.welcome-description {
+  color: #666;
+  font-size: 1.1em;
+  margin-bottom: 30px;
+  line-height: 1.6;
+}
+
+.username-inputs-welcome {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 30px;
+  align-items: center;
+  justify-content: center;
+}
+
+#usernameInputWelcome {
+  padding: 12px 18px;
+  font-size: 16px;
+  border: 2px solid rgba(102, 126, 234, 0.3);
+  border-radius: 8px;
+  background: white;
+  width: 250px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+#usernameInputWelcome:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.connect-button {
+  padding: 15px 40px;
+  font-size: 18px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  margin: 0;
+}
+
+.connect-button:hover {
+  transform: translateY(-3px);
+  background: linear-gradient(135deg, #ea66aa 0%, #68d03f 100%);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+

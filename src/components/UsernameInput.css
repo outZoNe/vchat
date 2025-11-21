@@ -1,0 +1,31 @@
+.username-inputs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: center;
+  justify-content: center;
+}
+
+#usernameInput {
+  padding: 10px 15px;
+  font-size: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  width: 250px;
+  transition: border-color 0.3s, background 0.3s;
+}
+
+#usernameInput:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.8);
+  background: white;
+}
+
+.saveUsernameBtn-input {
+  font-size: 16px;
+  height: 42px;
+  margin: 0;
+  padding: 0 20px;
+}
+

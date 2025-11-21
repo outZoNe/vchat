@@ -1,0 +1,44 @@
+server {
+    listen 80;
+    server_name _ ${APP_DOMAIN};
+    server_tokens off;
+    root /var/www/html;
+    index index.html;
+
+    # For letsencrypt ACME challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        allow all;
+        default_type "text/plain";
+    }
+
+    # API - должно быть перед location /, чтобы не перехватывалось try_files
+    location /api {
+        proxy_pass http://api_server:8080/api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Static files
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # WebSocket
+    location /ws {
+        proxy_pass http://api_server:8080/ws;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+    }
+
+    error_log /var/log/nginx/error.log;
+    access_log /var/log/nginx/access.log;
+}

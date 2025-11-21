@@ -1,0 +1,140 @@
+.main-interface {
+  margin-left: 280px;
+  margin-top: 60px; /* Account for fixed header */
+  width: calc(100% - 280px);
+  animation: fadeIn 0.5s ease-in;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 60px - 40px);
+  justify-content: space-between;
+  transition: margin-left 0.3s ease, width 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.main-interface.has-controls {
+  margin-bottom: 80px; /* Account for fixed controls panel */
+}
+
+.main-interface.has-controls {
+  margin-top: 0; /* Убираем отступ сверху для полного растяжения */
+  height: calc(100vh - 80px); /* Высота минус только controls */
+}
+
+.main-interface.has-controls .videos-container {
+  height: 100%; /* Занимает всю высоту main-interface */
+}
+
+.main-interface.sidebar-collapsed {
+  margin-left: 0 !important;
+  width: 100% !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.links-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding: 20px 0;
+  width: 100%;
+  color: #dcddde;
+}
+
+.link {
+  color: #5865f2;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.link:hover {
+  color: #4752c4;
+  text-decoration: underline;
+}
+
+.welcome-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  padding: 40px 20px;
+  color: #dcddde;
+}
+
+.welcome-message h1 {
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin: 0 0 20px 0;
+  color: #ffffff;
+}
+
+.welcome-message p {
+  font-size: 1.2rem;
+  margin: 0;
+  color: #b9bbbe;
+  max-width: 600px;
+}
+
+.videos-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  position: relative;
+  min-height: 0;
+  height: calc(100vh - 60px - 80px); /* Высота минус header и controls */
+  overflow: hidden;
+}
+
+.main-video-wrapper {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  margin: 0;
+}
+
+.other-videos-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 15px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 10px;
+  flex-shrink: 0;
+}
+
+.videos-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  padding: 20px;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
