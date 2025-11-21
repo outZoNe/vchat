@@ -93,10 +93,19 @@ export function usePeerConnection(appState, wsManager, onRemoteStreamUpdate) {
               console.log('replaceTrack: video on', pc.peerId);
             } else {
               // Video track идет в localStream (который может содержать audio)
+              // ВАЖНО: убеждаемся, что localStream существует и сохраняется в appState
               let stream = appState.localStream;
               if (!stream) {
                 stream = new MediaStream();
+                appState.setLocalStream(stream);
               }
+              
+              // Убеждаемся, что video track находится в localStream
+              const hasVideoInStream = stream.getVideoTracks().some(t => t === track);
+              if (!hasVideoInStream) {
+                stream.addTrack(track);
+              }
+              
               pc.addTrack(track, stream);
               console.log('addTrack: video to', pc.peerId, 'in localStream');
             }
@@ -110,10 +119,19 @@ export function usePeerConnection(appState, wsManager, onRemoteStreamUpdate) {
           await audioSender.replaceTrack(track);
           console.log('replaceTrack: audio on', pc.peerId);
         } else {
+          // ВАЖНО: убеждаемся, что localStream существует и содержит правильный audio track
           let stream = appState.localStream;
           if (!stream) {
             stream = new MediaStream();
+            appState.setLocalStream(stream);
           }
+          
+          // Убеждаемся, что audio track находится в localStream
+          const hasAudioInStream = stream.getAudioTracks().some(t => t === track);
+          if (!hasAudioInStream) {
+            stream.addTrack(track);
+          }
+          
           pc.addTrack(track, stream);
           console.log('addTrack: audio to', pc.peerId, 'in localStream');
         }

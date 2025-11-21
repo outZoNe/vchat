@@ -208,15 +208,30 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
         const pc = await peerConnectionManager.createPeerConnection(msg.id, isCaller);
 
         // Добавляем треки, если они есть
+        // ВАЖНО: добавляем треки последовательно с небольшими задержками,
+        // чтобы избежать race conditions и проблем с renegotiation
         const {tracks} = appState;
         if (tracks.audio && tracks.audio.readyState === 'live') {
           await peerConnectionManager.addTrackToPeer(pc, tracks.audio);
+          await new Promise(resolve => setTimeout(resolve, 50)); // Небольшая задержка
         }
         if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') {
           await peerConnectionManager.addTrackToPeer(pc, tracks.video);
+          await new Promise(resolve => setTimeout(resolve, 50)); // Небольшая задержка
         }
         if (tracks.screen && tracks.screen.readyState !== 'ended') {
           await peerConnectionManager.addTrackToPeer(pc, tracks.screen);
+          await new Promise(resolve => setTimeout(resolve, 50)); // Небольшая задержка
+        }
+        
+        // ВАЖНО: проверяем, что localStream правильно инициализирован и содержит все треки
+        // Это гарантирует, что все соединения используют один и тот же stream
+        if (appState.localStream) {
+          const audioInStream = appState.localStream.getAudioTracks().some(t => t === tracks.audio);
+          if (tracks.audio && tracks.audio.readyState === 'live' && !audioInStream) {
+            appState.localStream.addTrack(tracks.audio);
+            console.log('Added audio track to localStream for new participant');
+          }
         }
 
         // Если мы caller, отправляем offer
