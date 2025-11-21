@@ -109,6 +109,8 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
           }
 
           // Если мы caller, отправляем offer
+          // Если мы не caller (polite), также отправляем offer после добавления треков
+          // Это гарантирует, что соединение установится даже если onnegotiationneeded не сработает
           if (isCaller && pc.signalingState === 'stable' && !pc.makingOffer) {
             try {
               pc.makingOffer = true;
@@ -121,8 +123,26 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
             } finally {
               pc.makingOffer = false;
             }
+          } else if (!isCaller && pc.polite && pc.signalingState === 'stable' && !pc.makingOffer) {
+            // Если мы polite (не caller), также отправляем offer после добавления треков
+            // Это гарантирует, что новый участник увидит существующих участников
+            // Увеличиваем задержку, чтобы дать время impolite peers отправить offers первыми
+            try {
+              await new Promise(resolve => setTimeout(resolve, 300)); // Задержка для избежания glare
+              if (pc.signalingState === 'stable' && !pc.makingOffer) {
+                pc.makingOffer = true;
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                wsManager.send({type: 'offer', offer: pc.localDescription, to: participantId});
+                console.log('Sent offer to existing participant (polite):', participantId);
+              }
+            } catch (error) {
+              console.error('Error creating offer for existing participant (polite):', participantId, error);
+            } finally {
+              pc.makingOffer = false;
+            }
           } else {
-            console.log(`Not sending offer to ${participantId}: isCaller=${isCaller}, signalingState=${pc.signalingState}, makingOffer=${pc.makingOffer}`);
+            console.log(`Not sending offer to ${participantId}: isCaller=${isCaller}, polite=${pc.polite}, signalingState=${pc.signalingState}, makingOffer=${pc.makingOffer}`);
             console.log('Will wait for offer from this participant');
           }
         } else {
@@ -176,8 +196,73 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
     }
 
     playSound('join.mp3');
-    await peerConnectionManager.rebuildAllPeerConnections(msg.id);
-  }, [appState, peerConnectionManager, playSound]);
+    
+    // Создаем соединение только с новым участником, не перестраивая все соединения
+    // Это предотвращает разрыв существующих соединений между другими участниками
+    try {
+      // Проверяем, нет ли уже peer connection для этого участника
+      if (!appState.pcs[msg.id]) {
+        const isCaller = appState.myId && appState.myId < msg.id;
+        console.log(`Creating peer connection for new participant ${msg.id}, isCaller: ${isCaller}, myId: ${appState.myId}`);
+
+        const pc = await peerConnectionManager.createPeerConnection(msg.id, isCaller);
+
+        // Добавляем треки, если они есть
+        const {tracks} = appState;
+        if (tracks.audio && tracks.audio.readyState === 'live') {
+          await peerConnectionManager.addTrackToPeer(pc, tracks.audio);
+        }
+        if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') {
+          await peerConnectionManager.addTrackToPeer(pc, tracks.video);
+        }
+        if (tracks.screen && tracks.screen.readyState !== 'ended') {
+          await peerConnectionManager.addTrackToPeer(pc, tracks.screen);
+        }
+
+        // Если мы caller, отправляем offer
+        // Если мы не caller (polite), также отправляем offer после добавления треков
+        // Это гарантирует, что соединение установится даже если onnegotiationneeded не сработает
+        if (isCaller && pc.signalingState === 'stable' && !pc.makingOffer) {
+          try {
+            pc.makingOffer = true;
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            wsManager.send({type: 'offer', offer: pc.localDescription, to: msg.id});
+            console.log('Sent offer to new participant:', msg.id);
+          } catch (error) {
+            console.error('Error creating offer for new participant:', msg.id, error);
+          } finally {
+            pc.makingOffer = false;
+          }
+        } else if (!isCaller && pc.polite && pc.signalingState === 'stable' && !pc.makingOffer) {
+          // Если мы polite (не caller), также отправляем offer после добавления треков
+          // Это гарантирует, что новый участник увидит существующих участников
+          // Увеличиваем задержку, чтобы дать время impolite peers отправить offers первыми
+          try {
+            await new Promise(resolve => setTimeout(resolve, 300)); // Задержка для избежания glare
+            if (pc.signalingState === 'stable' && !pc.makingOffer) {
+              pc.makingOffer = true;
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              wsManager.send({type: 'offer', offer: pc.localDescription, to: msg.id});
+              console.log('Sent offer to new participant (polite):', msg.id);
+            }
+          } catch (error) {
+            console.error('Error creating offer for new participant (polite):', msg.id, error);
+          } finally {
+            pc.makingOffer = false;
+          }
+        } else {
+          console.log(`Not sending offer to new participant ${msg.id}: isCaller=${isCaller}, polite=${pc.polite}, signalingState=${pc.signalingState}, makingOffer=${pc.makingOffer}`);
+          console.log('Will wait for offer from this participant');
+        }
+      } else {
+        console.log(`Peer connection for new participant ${msg.id} already exists`);
+      }
+    } catch (error) {
+      console.error('Error creating peer connection for new participant:', msg.id, error);
+    }
+  }, [appState, peerConnectionManager, wsManager, playSound]);
 
   const handleOffer = useCallback(async (msg) => {
     console.log('Received offer from:', msg.from);
