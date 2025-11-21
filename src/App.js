@@ -177,6 +177,84 @@ function App() {
     setRemoteStreams(appState.remoteStreams);
   }, [appState.remoteStreams]);
 
+  // Периодическая проверка и восстановление соединений
+  useEffect(() => {
+    if (!connected || !wsManager.ws || wsManager.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    // Отслеживаем время последней попытки восстановления для каждого peer
+    const lastRecoveryAttempt = new Map();
+
+    const checkConnections = async () => {
+      const pcs = appState.pcs;
+      const peerIds = Object.keys(pcs);
+
+      for (const peerId of peerIds) {
+        const pc = pcs[peerId];
+        if (!pc) continue;
+
+        // Проверяем состояние соединения
+        const connectionState = pc.connectionState;
+        const signalingState = pc.signalingState;
+        const iceConnectionState = pc.iceConnectionState;
+
+        // Если соединение не установлено и signaling в stable, пытаемся восстановить
+        if (connectionState !== 'connected' && 
+            connectionState !== 'connecting' && 
+            signalingState === 'stable' && 
+            !pc.makingOffer &&
+            iceConnectionState !== 'failed') {
+          
+          // Проверяем, не пытались ли мы восстановить соединение недавно (не чаще раза в 10 секунд)
+          const lastAttempt = lastRecoveryAttempt.get(peerId);
+          const now = Date.now();
+          if (lastAttempt && (now - lastAttempt) < 10000) {
+            continue; // Пропускаем, если недавно уже пытались
+          }
+
+          lastRecoveryAttempt.set(peerId, now);
+          
+          console.log(`Connection check: attempting to restore connection with ${peerId}`, {
+            connectionState,
+            signalingState,
+            iceConnectionState
+          });
+
+          try {
+            // Отправляем offer для восстановления соединения
+            const {tracks} = appState;
+            const hasTracks = (tracks.audio && tracks.audio.readyState === 'live') ||
+                             (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') ||
+                             (tracks.screen && tracks.screen.readyState !== 'ended');
+
+            if (hasTracks) {
+              pc.makingOffer = true;
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              wsManager.send({type: 'offer', offer: pc.localDescription, to: peerId});
+              console.log(`Sent recovery offer to ${peerId}`);
+              pc.makingOffer = false;
+            }
+          } catch (error) {
+            console.error(`Error sending recovery offer to ${peerId}:`, error);
+            pc.makingOffer = false;
+          }
+        } else if (connectionState === 'connected') {
+          // Если соединение установлено, удаляем из отслеживания
+          lastRecoveryAttempt.delete(peerId);
+        }
+      }
+    };
+
+    // Проверяем соединения каждые 5 секунд
+    const interval = setInterval(checkConnections, 5000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [connected, wsManager, appState, peerConnectionManager]);
+
   return (
     <div className="App">
       <Header 

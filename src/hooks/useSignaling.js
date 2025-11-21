@@ -87,7 +87,9 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
     console.log('Participant IDs to connect to:', participantIds);
 
     // Создаем peer connections для каждого участника
-    for (const participantId of participantIds) {
+    // ВАЖНО: добавляем небольшую задержку между созданием соединений, чтобы избежать перегрузки
+    for (let i = 0; i < participantIds.length; i++) {
+      const participantId = participantIds[i];
       try {
         // Проверяем, нет ли уже peer connection для этого участника
         if (!appState.pcs[participantId]) {
@@ -95,61 +97,75 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
           console.log(`Creating peer connection for ${participantId}, isCaller: ${isCaller}, myId: ${appState.myId}`);
 
           const pc = await peerConnectionManager.createPeerConnection(participantId, isCaller);
+          
+          // Небольшая задержка между созданием соединений (кроме первого)
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
 
           // Добавляем треки, если они есть
           const {tracks} = appState;
           if (tracks.audio && tracks.audio.readyState === 'live') {
             await peerConnectionManager.addTrackToPeer(pc, tracks.audio);
+            await new Promise(resolve => setTimeout(resolve, 50));
           }
           if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') {
             await peerConnectionManager.addTrackToPeer(pc, tracks.video);
+            await new Promise(resolve => setTimeout(resolve, 50));
           }
           if (tracks.screen && tracks.screen.readyState !== 'ended') {
             await peerConnectionManager.addTrackToPeer(pc, tracks.screen);
+            await new Promise(resolve => setTimeout(resolve, 50));
           }
 
-          // Если мы caller, отправляем offer
-          // Если мы не caller (polite), также отправляем offer после добавления треков
-          // Это гарантирует, что соединение установится даже если onnegotiationneeded не сработает
-          if (isCaller && pc.signalingState === 'stable' && !pc.makingOffer) {
-            try {
-              pc.makingOffer = true;
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              wsManager.send({type: 'offer', offer: pc.localDescription, to: participantId});
-              console.log('Sent offer to existing participant:', participantId);
-            } catch (error) {
-              console.error('Error creating offer for existing participant:', participantId, error);
-            } finally {
-              pc.makingOffer = false;
-            }
-          } else if (!isCaller && pc.polite && pc.signalingState === 'stable' && !pc.makingOffer) {
-            // Если мы polite (не caller), также отправляем offer после добавления треков
-            // Это гарантирует, что новый участник увидит существующих участников
-            // Увеличиваем задержку, чтобы дать время impolite peers отправить offers первыми
-            try {
-              await new Promise(resolve => setTimeout(resolve, 300)); // Задержка для избежания glare
-              if (pc.signalingState === 'stable' && !pc.makingOffer) {
+          // ВАЖНО: Всегда отправляем offer после добавления треков, чтобы гарантировать установку соединения
+          // Если мы caller, отправляем сразу
+          // Если мы polite, отправляем с задержкой, чтобы избежать glare
+          const sendOffer = async () => {
+            if (pc.signalingState === 'stable' && !pc.makingOffer) {
+              try {
                 pc.makingOffer = true;
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
                 wsManager.send({type: 'offer', offer: pc.localDescription, to: participantId});
-                console.log('Sent offer to existing participant (polite):', participantId);
+                console.log(`Sent offer to existing participant ${participantId} (isCaller: ${isCaller}, polite: ${pc.polite})`);
+              } catch (error) {
+                console.error('Error creating offer for existing participant:', participantId, error);
+              } finally {
+                pc.makingOffer = false;
               }
-            } catch (error) {
-              console.error('Error creating offer for existing participant (polite):', participantId, error);
-            } finally {
-              pc.makingOffer = false;
             }
+          };
+
+          if (isCaller) {
+            // Caller отправляет offer сразу
+            await sendOffer();
           } else {
-            console.log(`Not sending offer to ${participantId}: isCaller=${isCaller}, polite=${pc.polite}, signalingState=${pc.signalingState}, makingOffer=${pc.makingOffer}`);
-            console.log('Will wait for offer from this participant');
+            // Polite peer отправляет offer с задержкой, чтобы избежать glare
+            setTimeout(async () => {
+              await sendOffer();
+            }, 300);
           }
+
+          // ВАЖНО: Добавляем fallback механизм - если соединение не установилось через 2 секунды,
+          // отправляем offer еще раз (на случай, если первый offer был потерян или не обработан)
+          setTimeout(async () => {
+            if (pc.connectionState !== 'connected' && pc.connectionState !== 'connecting' && 
+                pc.signalingState === 'stable' && !pc.makingOffer) {
+              console.log(`Connection not established for ${participantId}, sending fallback offer`);
+              await sendOffer();
+            }
+          }, 2000);
         } else {
           console.log(`Peer connection for ${participantId} already exists`);
         }
       } catch (error) {
         console.error('Error creating peer connection for existing participant:', participantId, error);
+      }
+      
+      // Небольшая задержка перед следующим участником
+      if (i < participantIds.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
 
@@ -234,43 +250,44 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
           }
         }
 
-        // Если мы caller, отправляем offer
-        // Если мы не caller (polite), также отправляем offer после добавления треков
-        // Это гарантирует, что соединение установится даже если onnegotiationneeded не сработает
-        if (isCaller && pc.signalingState === 'stable' && !pc.makingOffer) {
-          try {
-            pc.makingOffer = true;
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            wsManager.send({type: 'offer', offer: pc.localDescription, to: msg.id});
-            console.log('Sent offer to new participant:', msg.id);
-          } catch (error) {
-            console.error('Error creating offer for new participant:', msg.id, error);
-          } finally {
-            pc.makingOffer = false;
-          }
-        } else if (!isCaller && pc.polite && pc.signalingState === 'stable' && !pc.makingOffer) {
-          // Если мы polite (не caller), также отправляем offer после добавления треков
-          // Это гарантирует, что новый участник увидит существующих участников
-          // Увеличиваем задержку, чтобы дать время impolite peers отправить offers первыми
-          try {
-            await new Promise(resolve => setTimeout(resolve, 300)); // Задержка для избежания glare
-            if (pc.signalingState === 'stable' && !pc.makingOffer) {
+        // ВАЖНО: Всегда отправляем offer после добавления треков, чтобы гарантировать установку соединения
+        // Если мы caller, отправляем сразу
+        // Если мы polite, отправляем с задержкой, чтобы избежать glare
+        const sendOffer = async () => {
+          if (pc.signalingState === 'stable' && !pc.makingOffer) {
+            try {
               pc.makingOffer = true;
               const offer = await pc.createOffer();
               await pc.setLocalDescription(offer);
               wsManager.send({type: 'offer', offer: pc.localDescription, to: msg.id});
-              console.log('Sent offer to new participant (polite):', msg.id);
+              console.log(`Sent offer to new participant ${msg.id} (isCaller: ${isCaller}, polite: ${pc.polite})`);
+            } catch (error) {
+              console.error('Error creating offer for new participant:', msg.id, error);
+            } finally {
+              pc.makingOffer = false;
             }
-          } catch (error) {
-            console.error('Error creating offer for new participant (polite):', msg.id, error);
-          } finally {
-            pc.makingOffer = false;
           }
+        };
+
+        if (isCaller) {
+          // Caller отправляет offer сразу
+          await sendOffer();
         } else {
-          console.log(`Not sending offer to new participant ${msg.id}: isCaller=${isCaller}, polite=${pc.polite}, signalingState=${pc.signalingState}, makingOffer=${pc.makingOffer}`);
-          console.log('Will wait for offer from this participant');
+          // Polite peer отправляет offer с задержкой, чтобы избежать glare
+          setTimeout(async () => {
+            await sendOffer();
+          }, 300);
         }
+
+        // ВАЖНО: Добавляем fallback механизм - если соединение не установилось через 2 секунды,
+        // отправляем offer еще раз (на случай, если первый offer был потерян или не обработан)
+        setTimeout(async () => {
+          if (pc.connectionState !== 'connected' && pc.connectionState !== 'connecting' && 
+              pc.signalingState === 'stable' && !pc.makingOffer) {
+            console.log(`Connection not established for new participant ${msg.id}, sending fallback offer`);
+            await sendOffer();
+          }
+        }, 2000);
       } else {
         console.log(`Peer connection for new participant ${msg.id} already exists`);
       }
