@@ -9,6 +9,7 @@ import { useRoomManagement } from './hooks/useRoomManagement';
 import { RoomsList } from './components/RoomsList';
 import { MainInterface } from './components/MainInterface';
 import { Header } from './components/Header';
+import { CONFIG } from './config';
 import './App.css';
 
 function App() {
@@ -203,17 +204,22 @@ function App() {
         if (connectionState !== 'connected' && 
             connectionState !== 'connecting' && 
             signalingState === 'stable' && 
-            !pc.makingOffer &&
-            iceConnectionState !== 'failed') {
+            !pc.makingOffer) {
           
-          // Проверяем, не пытались ли мы восстановить соединение недавно (не чаще раза в 10 секунд)
+          // Проверяем, не пытались ли мы восстановить соединение недавно
           const lastAttempt = lastRecoveryAttempt.get(peerId);
           const now = Date.now();
-          if (lastAttempt && (now - lastAttempt) < 10000) {
+          const recoveryDelay = CONFIG.PEER_CONNECTION?.recoveryAttemptDelay || 1000;
+          if (lastAttempt && (now - lastAttempt) < recoveryDelay) {
             continue; // Пропускаем, если недавно уже пытались
           }
 
           lastRecoveryAttempt.set(peerId, now);
+          
+          // Определяем, нужен ли ICE restart
+          const useIceRestart = connectionState === 'failed' || 
+                               iceConnectionState === 'failed' ||
+                               (iceConnectionState === 'disconnected' && (now - (pc.lastConnectedTime || now)) > 5000);
           
           console.log(`Connection check: attempting to restore connection with ${peerId}`, {
             connectionState,
@@ -222,7 +228,7 @@ function App() {
           });
 
           try {
-            // Отправляем offer для восстановления соединения
+            // Отправляем offer для восстановления соединения с ICE restart при необходимости
             const {tracks} = appState;
             const hasTracks = (tracks.audio && tracks.audio.readyState === 'live') ||
                              (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') ||
@@ -230,10 +236,11 @@ function App() {
 
             if (hasTracks) {
               pc.makingOffer = true;
-              const offer = await pc.createOffer();
+              const offerOptions = useIceRestart ? { iceRestart: true } : {};
+              const offer = await pc.createOffer(offerOptions);
               await pc.setLocalDescription(offer);
               wsManager.send({type: 'offer', offer: pc.localDescription, to: peerId});
-              console.log(`Sent recovery offer to ${peerId}`);
+              console.log(`Sent recovery offer to ${peerId}${useIceRestart ? ' with ICE restart' : ''}`);
               pc.makingOffer = false;
             }
           } catch (error) {
@@ -247,8 +254,10 @@ function App() {
       }
     };
 
-    // Проверяем соединения каждые 5 секунд
-    const interval = setInterval(checkConnections, 5000);
+    // КРИТИЧНО: Проверяем соединения чаще для максимальной стабильности
+    // Используем конфигурацию из CONFIG для согласованности
+    const checkInterval = CONFIG.PEER_CONNECTION?.connectionCheckInterval || 2000;
+    const interval = setInterval(checkConnections, checkInterval);
 
     return () => {
       clearInterval(interval);

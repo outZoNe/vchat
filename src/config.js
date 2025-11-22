@@ -34,7 +34,14 @@ export const CONFIG = {
   },
 
   PEER_CONNECTION: {
-    offerDelay: 500, negotiationDelay: 100
+    offerDelay: 500,
+    negotiationDelay: 100,
+    // Настройки для максимальной стабильности при плохом интернете
+    iceRestartInterval: 3000, // Интервал для ICE restart при проблемах (мс)
+    connectionCheckInterval: 2000, // Интервал проверки соединений (мс)
+    recoveryAttemptDelay: 1000, // Задержка перед попыткой восстановления (мс)
+    maxRecoveryAttempts: 5, // Максимальное количество попыток восстановления подряд
+    iceConnectionTimeout: 10000 // Таймаут для установления ICE соединения (мс)
   }
 };
 

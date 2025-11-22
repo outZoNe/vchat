@@ -206,11 +206,24 @@ export function usePeerConnection(appState, wsManager, onRemoteStreamUpdate) {
       return appState.getPeerConnection(id);
     }
 
-    const pc = new RTCPeerConnection({iceServers: CONFIG.ICE_SERVERS});
+    // КРИТИЧНО: Настройки для максимальной стабильности при плохом интернете
+    const pc = new RTCPeerConnection({
+      iceServers: CONFIG.ICE_SERVERS,
+      // Улучшенные настройки для стабильности
+      iceCandidatePoolSize: 10, // Больше кандидатов для лучшей стабильности
+      bundlePolicy: 'max-bundle', // Используем bundle для экономии ресурсов
+      rtcpMuxPolicy: 'require', // Требуем RTCP mux
+      // Настройки для лучшей работы через TURN
+      iceTransportPolicy: 'all', // Пробуем все типы соединений
+      // Улучшенная обработка при плохом интернете
+      iceConnectionReceivingTimeout: CONFIG.PEER_CONNECTION.iceConnectionTimeout
+    });
     pc.peerId = id;
     pc.polite = appState.myId !== null ? appState.myId > id : false;
     pc.makingOffer = false;
     pc.ignoreOffer = false;
+    pc.recoveryAttempts = 0; // Счетчик попыток восстановления
+    pc.lastRecoveryAttempt = 0; // Время последней попытки восстановления
 
     appState.setPeerConnection(id, pc);
     console.log('Creating peer connection for', id, 'polite:', pc.polite);
@@ -330,7 +343,6 @@ export function usePeerConnection(appState, wsManager, onRemoteStreamUpdate) {
 function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer, onRemoteStreamUpdate) {
   let audioRestoreTimeout = null;
   let recoveryTimeout = null;
-  let lastRecoveryAttempt = 0;
   // Сохраняем последний video track ID для определения screen track
   let lastVideoTrackId = null;
 
@@ -487,19 +499,29 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
     }
   };
 
-  const attemptRecovery = async () => {
+  const attemptRecovery = async (useIceRestart = false) => {
     const now = Date.now();
-    // Не пытаемся восстанавливать чаще раза в 5 секунд
-    if (now - lastRecoveryAttempt < 5000) {
+    // Не пытаемся восстанавливать чаще раза в 1 секунду
+    if (now - pc.lastRecoveryAttempt < CONFIG.PEER_CONNECTION.recoveryAttemptDelay) {
       return;
     }
-    lastRecoveryAttempt = now;
+    
+    // Проверяем количество попыток восстановления
+    if (pc.recoveryAttempts >= CONFIG.PEER_CONNECTION.maxRecoveryAttempts) {
+      console.warn(`[Peer ${id}] Max recovery attempts reached, resetting counter`);
+      pc.recoveryAttempts = 0;
+      // Если достигли максимума, делаем полный перезапуск соединения
+      useIceRestart = true;
+    }
+    
+    pc.lastRecoveryAttempt = now;
+    pc.recoveryAttempts++;
 
     if (pc.connectionState === 'closed' || pc.signalingState === 'closed') {
       return;
     }
 
-    console.log(`[Peer ${id}] Attempting to recover connection...`, {
+    console.log(`[Peer ${id}] Attempting to recover connection (attempt ${pc.recoveryAttempts}/${CONFIG.PEER_CONNECTION.maxRecoveryAttempts}, iceRestart: ${useIceRestart})...`, {
       connectionState: pc.connectionState,
       iceConnectionState: pc.iceConnectionState,
       signalingState: pc.signalingState
@@ -550,10 +572,17 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
         if (hasTracks) {
           pc.makingOffer = true;
           try {
-            const offer = await pc.createOffer();
+            // КРИТИЧНО: Используем iceRestart для полного перезапуска ICE при проблемах
+            const offerOptions = useIceRestart ? { iceRestart: true } : {};
+            const offer = await pc.createOffer(offerOptions);
             await pc.setLocalDescription(offer);
             wsManager.send({type: 'offer', offer: pc.localDescription, to: id});
-            console.log(`[Peer ${id}] Sent recovery offer`);
+            console.log(`[Peer ${id}] Sent recovery offer${useIceRestart ? ' with ICE restart' : ''}`);
+            
+            // Сбрасываем счетчик при успешной отправке
+            if (useIceRestart) {
+              pc.recoveryAttempts = 0;
+            }
           } catch (error) {
             console.error(`[Peer ${id}] Error creating recovery offer:`, error);
           } finally {
@@ -626,7 +655,36 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
     if (pc.connectionState === 'connected' || pc.connectionState === 'connecting') {
       checkAndRestoreRemoteTracks();
     }
-  }, 1000); // Увеличиваем частоту проверки до 1 секунды
+    
+    // КРИТИЧНО: Проверяем состояние соединения и восстанавливаем при проблемах
+    const now = Date.now();
+    const connectionState = pc.connectionState;
+    const iceConnectionState = pc.iceConnectionState;
+    
+    // Если соединение disconnected или failed, пытаемся восстановить
+    if ((connectionState === 'disconnected' || connectionState === 'failed' ||
+         iceConnectionState === 'disconnected' || iceConnectionState === 'failed') &&
+        pc.signalingState === 'stable' && !pc.makingOffer) {
+      
+      const timeSinceLastRecovery = now - pc.lastRecoveryAttempt;
+      const shouldRecover = timeSinceLastRecovery >= CONFIG.PEER_CONNECTION.recoveryAttemptDelay;
+      
+      if (shouldRecover) {
+        const disconnectedTime = now - (pc.lastConnectedTime || now);
+        const useIceRestart = disconnectedTime > CONFIG.PEER_CONNECTION.iceRestartInterval ||
+                             connectionState === 'failed' || iceConnectionState === 'failed';
+        
+        console.log(`[Peer ${id}] Periodic check: connection needs recovery`, {
+          connectionState,
+          iceConnectionState,
+          disconnectedTime,
+          useIceRestart
+        });
+        
+        attemptRecovery(useIceRestart);
+      }
+    }
+  }, CONFIG.PEER_CONNECTION.connectionCheckInterval);
 
   pc._audioCheckInterval = audioCheckInterval;
 
@@ -786,6 +844,10 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
     console.log(`[Peer ${id}] ICE connection state changed:`, pc.iceConnectionState, 'connectionState:', pc.connectionState);
     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
       console.log(`[Peer ${id}] Connection established!`);
+      // Сбрасываем счетчик попыток восстановления при успешном соединении
+      pc.recoveryAttempts = 0;
+      pc.lastConnectedTime = Date.now();
+      
       // При восстановлении соединения проверяем и восстанавливаем треки
       setTimeout(() => {
         checkAndRestoreAudio();
@@ -857,23 +919,28 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
         }, 1000);
       }, 500);
     } else if (pc.iceConnectionState === 'failed') {
-      console.warn(`[Peer ${id}] ICE connection failed, attempting recovery...`);
-      // При полном провале пытаемся восстановить соединение
+      console.warn(`[Peer ${id}] ICE connection failed, attempting recovery with ICE restart...`);
+      // При полном провале используем ICE restart для полного перезапуска
       if (recoveryTimeout) {
         clearTimeout(recoveryTimeout);
       }
       recoveryTimeout = setTimeout(() => {
-        attemptRecovery();
-      }, 1000);
+        attemptRecovery(true); // Используем ICE restart
+      }, CONFIG.PEER_CONNECTION.recoveryAttemptDelay);
     } else if (pc.iceConnectionState === 'disconnected') {
       console.warn(`[Peer ${id}] ICE connection disconnected, attempting recovery...`);
       // При разрыве соединения пытаемся восстановить
+      // Если disconnected долго, используем ICE restart
+      const now = Date.now();
+      const disconnectedTime = now - (pc.lastConnectedTime || now);
+      const useIceRestart = disconnectedTime > 5000; // Если disconnected больше 5 секунд
+      
       if (recoveryTimeout) {
         clearTimeout(recoveryTimeout);
       }
       recoveryTimeout = setTimeout(() => {
-        attemptRecovery();
-      }, 2000);
+        attemptRecovery(useIceRestart);
+      }, CONFIG.PEER_CONNECTION.recoveryAttemptDelay);
     }
   };
 
@@ -952,23 +1019,28 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
         }, 1000);
       }, 500);
     } else if (pc.connectionState === 'failed') {
-      console.warn(`[Peer ${id}] Peer connection failed, attempting recovery...`);
-      // При полном провале пытаемся восстановить соединение
+      console.warn(`[Peer ${id}] Peer connection failed, attempting recovery with ICE restart...`);
+      // При полном провале используем ICE restart
       if (recoveryTimeout) {
         clearTimeout(recoveryTimeout);
       }
       recoveryTimeout = setTimeout(() => {
-        attemptRecovery();
-      }, 1000);
+        attemptRecovery(true); // Используем ICE restart
+      }, CONFIG.PEER_CONNECTION.recoveryAttemptDelay);
     } else if (pc.connectionState === 'disconnected') {
       console.warn(`[Peer ${id}] Peer connection disconnected, attempting recovery...`);
       // При разрыве соединения пытаемся восстановить
+      // Если disconnected долго, используем ICE restart
+      const now = Date.now();
+      const disconnectedTime = now - (pc.lastConnectedTime || now);
+      const useIceRestart = disconnectedTime > 5000; // Если disconnected больше 5 секунд
+      
       if (recoveryTimeout) {
         clearTimeout(recoveryTimeout);
       }
       recoveryTimeout = setTimeout(() => {
-        attemptRecovery();
-      }, 2000);
+        attemptRecovery(useIceRestart);
+      }, CONFIG.PEER_CONNECTION.recoveryAttemptDelay);
     }
   };
 }
