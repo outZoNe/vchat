@@ -318,33 +318,177 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
       }
 
       console.log('Accepting offer from', msg.from, 'signalingState:', pc.signalingState, 'connectionState:', pc.connectionState);
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-      console.log('Set remote description from offer, signalingState:', pc.signalingState);
+      
+      // КРИТИЧНО: Проверяем существующие senders перед setRemoteDescription
+      // Это важно для сохранения порядка m-lines в SDP
+      const existingSenders = pc.getSenders();
+      const existingSenderTracks = existingSenders
+        .filter(s => s.track)
+        .map(s => ({ kind: s.track.kind, trackId: s.track.id }));
+      
+      console.log(`[Peer ${msg.from}] Existing senders before setRemoteDescription:`, existingSenderTracks);
+      
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+        console.log('Set remote description from offer, signalingState:', pc.signalingState);
+      } catch (error) {
+        // КРИТИЧНО: Если порядок m-lines не совпадает, пытаемся восстановить соединение
+        if (error.name === 'InvalidAccessError' && error.message.includes('m-lines')) {
+          console.error(`[Peer ${msg.from}] CRITICAL: m-lines order mismatch error!`, error);
+          console.error(`[Peer ${msg.from}] Attempting to recover by closing and recreating connection...`);
+          
+          // Закрываем текущее соединение
+          try {
+            pc.close();
+          } catch (closeError) {
+            console.warn(`[Peer ${msg.from}] Error closing connection:`, closeError);
+          }
+          
+          // Удаляем соединение из состояния
+          appState.removePeerConnection(msg.from);
+          
+          // Создаем новое соединение и отправляем offer
+          setTimeout(async () => {
+            try {
+              const newPc = await peerConnectionManager.createPeerConnection(msg.from, false);
+              const {tracks} = appState;
+              
+              // Добавляем треки в правильном порядке
+              if (tracks.audio && tracks.audio.readyState === 'live') {
+                await peerConnectionManager.addTrackToPeer(newPc, tracks.audio);
+                await new Promise(resolve => setTimeout(resolve, 50));
+              }
+              if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') {
+                await peerConnectionManager.addTrackToPeer(newPc, tracks.video);
+                await new Promise(resolve => setTimeout(resolve, 50));
+              }
+              if (tracks.screen && tracks.screen.readyState !== 'ended') {
+                await peerConnectionManager.addTrackToPeer(newPc, tracks.screen);
+                await new Promise(resolve => setTimeout(resolve, 50));
+              }
+              
+              // Отправляем новый offer
+              if (newPc.signalingState === 'stable' && !newPc.makingOffer) {
+                newPc.makingOffer = true;
+                const offer = await newPc.createOffer();
+                await newPc.setLocalDescription(offer);
+                wsManager.send({type: 'offer', offer: newPc.localDescription, to: msg.from});
+                console.log(`[Peer ${msg.from}] Sent recovery offer after m-lines order mismatch`);
+                newPc.makingOffer = false;
+              }
+            } catch (recoveryError) {
+              console.error(`[Peer ${msg.from}] Error during recovery:`, recoveryError);
+            }
+          }, 500);
+          
+          return; // Прерываем обработку текущего offer
+        } else {
+          // Другие ошибки просто пробрасываем
+          throw error;
+        }
+      }
 
       await processBufferedIceCandidates(msg.from, pc, appState);
+      
+      // КРИТИЧНО: Проверяем, что мы в правильном состоянии для добавления треков
+      // Мы должны быть в состоянии 'have-remote-offer' после setRemoteDescription
+      if (pc.signalingState !== 'have-remote-offer') {
+        console.warn(`[Peer ${msg.from}] Warning: signalingState is ${pc.signalingState}, expected 'have-remote-offer'`);
+      }
 
-      // Добавляем треки перед созданием answer
-      // Используем tracks вместо currentTracks для более надежной проверки
+      // КРИТИЧНО: Добавляем треки перед созданием answer в фиксированном порядке
+      // Порядок должен быть: audio, video, screen (если screen есть, video идет после screen)
+      // Это важно для сохранения порядка m-lines в SDP между переговорами
       const {tracks} = appState;
+      
+      // Проверяем текущие senders после setRemoteDescription
+      const currentSenders = pc.getSenders();
+      const currentSenderTracks = currentSenders
+        .filter(s => s.track)
+        .map(s => ({ kind: s.track.kind, trackId: s.track.id }));
+      
+      console.log(`[Peer ${msg.from}] Current senders after setRemoteDescription:`, currentSenderTracks);
+      
+      // КРИТИЧНО: Если у нас уже есть senders, проверяем порядок
+      // Порядок m-lines должен оставаться постоянным между переговорами
+      if (existingSenderTracks.length > 0 && currentSenderTracks.length > 0) {
+        const existingOrder = existingSenderTracks.map(s => s.kind).join(',');
+        const currentOrder = currentSenderTracks.map(s => s.kind).join(',');
+        if (existingOrder !== currentOrder) {
+          console.warn(`[Peer ${msg.from}] WARNING: Sender order changed! Existing: ${existingOrder}, Current: ${currentOrder}`);
+          console.warn(`[Peer ${msg.from}] This may cause 'm-lines order mismatch' error. Attempting to maintain order...`);
+        }
+      }
+      
+      // 1. Audio (всегда первый)
       if (tracks.audio && tracks.audio.readyState === 'live') {
-        await peerConnectionManager.addTrackToPeer(pc, tracks.audio);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        const audioSender = currentSenders.find(s => s.track && s.track.kind === 'audio');
+        if (!audioSender) {
+          await peerConnectionManager.addTrackToPeer(pc, tracks.audio);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } else if (audioSender.track !== tracks.audio) {
+          await audioSender.replaceTrack(tracks.audio);
+          console.log('Replaced audio track in handleOffer');
+        }
       }
-      // Добавляем video и screen одновременно, если они оба активны
-      if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') {
-        console.log('Adding video track to new peer connection in handleOffer');
-        await peerConnectionManager.addTrackToPeer(pc, tracks.video);
-        await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // 2. Video (второй, если нет screen)
+      if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live' && 
+          !tracks.screen) {
+        const videoSender = currentSenders.find(s => 
+          s.track && s.track.kind === 'video' && 
+          s.track !== appState.tracks.screen && 
+          s.track === tracks.video
+        );
+        if (!videoSender) {
+          console.log('Adding video track to new peer connection in handleOffer');
+          await peerConnectionManager.addTrackToPeer(pc, tracks.video);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } else if (videoSender.track !== tracks.video) {
+          await videoSender.replaceTrack(tracks.video);
+          console.log('Replaced video track in handleOffer');
+        }
       }
+      
+      // 3. Screen (третий, если есть)
       if (tracks.screen && tracks.screen.readyState !== 'ended') {
-        console.log('Adding screen track to new peer connection in handleOffer');
-        await peerConnectionManager.addTrackToPeer(pc, tracks.screen);
-        await new Promise(resolve => setTimeout(resolve, 50));
+        const screenSender = currentSenders.find(s => 
+          s.track && s.track.kind === 'video' && 
+          s.track === tracks.screen
+        );
+        if (!screenSender) {
+          console.log('Adding screen track to new peer connection in handleOffer');
+          await peerConnectionManager.addTrackToPeer(pc, tracks.screen);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } else if (screenSender.track !== tracks.screen) {
+          await screenSender.replaceTrack(tracks.screen);
+          console.log('Replaced screen track in handleOffer');
+        }
+      }
+      
+      // 4. Video (четвертый, если есть screen - video идет после screen для сохранения порядка)
+      if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live' && 
+          tracks.screen) {
+        const videoSender = currentSenders.find(s => 
+          s.track && s.track.kind === 'video' && 
+          s.track !== appState.tracks.screen && 
+          s.track === tracks.video
+        );
+        if (!videoSender) {
+          console.log('Adding video track to new peer connection in handleOffer (after screen)');
+          await peerConnectionManager.addTrackToPeer(pc, tracks.video);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } else if (videoSender.track !== tracks.video) {
+          await videoSender.replaceTrack(tracks.video);
+          console.log('Replaced video track in handleOffer (after screen)');
+        }
       }
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       wsManager.send({type: 'answer', answer: pc.localDescription, to: msg.from});
+      
+      console.log(`[Peer ${msg.from}] Answer created and sent successfully`);
       
       // Проверяем receivers после создания answer
       // Это важно, так как иногда ontrack event может не сработать сразу
