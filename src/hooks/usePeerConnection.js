@@ -329,6 +329,8 @@ export function usePeerConnection(appState, wsManager, onRemoteStreamUpdate) {
 
 function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer, onRemoteStreamUpdate) {
   let audioRestoreTimeout = null;
+  let recoveryTimeout = null;
+  let lastRecoveryAttempt = 0;
   // Сохраняем последний video track ID для определения screen track
   let lastVideoTrackId = null;
 
@@ -365,6 +367,119 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
     }
   };
 
+  const checkAndRestoreRemoteTracks = async () => {
+    // Проверяем, что удаленные треки все еще активны
+    const remoteStreams = appState.remoteStreams[id];
+    if (!remoteStreams) {
+      return;
+    }
+
+    // Проверяем аудио трек
+    if (remoteStreams.audio) {
+      const audioTracks = remoteStreams.audio.getAudioTracks();
+      if (audioTracks.length > 0) {
+        const audioTrack = audioTracks[0];
+        if (audioTrack.readyState === 'ended' || audioTrack.muted) {
+          console.log(`[Peer ${id}] Remote audio track ended or muted, connection may need renegotiation`);
+        }
+      } else {
+        console.log(`[Peer ${id}] Remote audio stream has no tracks, connection may need renegotiation`);
+      }
+    } else {
+      // Если соединение установлено, но нет аудио трека, это может быть проблемой
+      if (pc.connectionState === 'connected' && pc.iceConnectionState === 'connected') {
+        console.log(`[Peer ${id}] Connection established but no remote audio track found`);
+      }
+    }
+
+    // Проверяем, что в peer connection есть получатели для удаленных треков
+    const receivers = pc.getReceivers();
+    const hasAudioReceiver = receivers.some(r => r.track && r.track.kind === 'audio');
+    
+    if (remoteStreams.audio && !hasAudioReceiver) {
+      console.log(`[Peer ${id}] Remote audio stream exists but no receiver found, may need renegotiation`);
+    }
+  };
+
+  const attemptRecovery = async () => {
+    const now = Date.now();
+    // Не пытаемся восстанавливать чаще раза в 5 секунд
+    if (now - lastRecoveryAttempt < 5000) {
+      return;
+    }
+    lastRecoveryAttempt = now;
+
+    if (pc.connectionState === 'closed' || pc.signalingState === 'closed') {
+      return;
+    }
+
+    console.log(`[Peer ${id}] Attempting to recover connection...`, {
+      connectionState: pc.connectionState,
+      iceConnectionState: pc.iceConnectionState,
+      signalingState: pc.signalingState
+    });
+
+    try {
+      // Восстанавливаем все треки
+      const {tracks} = appState;
+      
+      // Восстанавливаем аудио трек
+      await checkAndRestoreAudio();
+      
+      // Восстанавливаем видео трек, если он есть
+      if (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') {
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => 
+          s.track && s.track.kind === 'video' && 
+          s.track !== appState.tracks.screen &&
+          s.track === tracks.video
+        );
+        
+        if (!videoSender || videoSender.track !== tracks.video) {
+          console.log(`[Peer ${id}] Video sender missing, restoring...`);
+          await addTrackToPeer(pc, tracks.video);
+        }
+      }
+      
+      // Восстанавливаем screen трек, если он есть
+      if (tracks.screen && tracks.screen.readyState !== 'ended') {
+        const senders = pc.getSenders();
+        const screenSender = senders.find(s => 
+          s.track && s.track.kind === 'video' && 
+          s.track === tracks.screen
+        );
+        
+        if (!screenSender || screenSender.track !== tracks.screen) {
+          console.log(`[Peer ${id}] Screen sender missing, restoring...`);
+          await addTrackToPeer(pc, tracks.screen);
+        }
+      }
+
+      // Если signaling в stable и мы не делаем offer, отправляем новый offer
+      if (pc.signalingState === 'stable' && !pc.makingOffer && !pc.ignoreOffer) {
+        const hasTracks = (tracks.audio && tracks.audio.readyState === 'live') ||
+                         (tracks.video && tracks.video.enabled && tracks.video.readyState === 'live') ||
+                         (tracks.screen && tracks.screen.readyState !== 'ended');
+
+        if (hasTracks) {
+          pc.makingOffer = true;
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            wsManager.send({type: 'offer', offer: pc.localDescription, to: id});
+            console.log(`[Peer ${id}] Sent recovery offer`);
+          } catch (error) {
+            console.error(`[Peer ${id}] Error creating recovery offer:`, error);
+          } finally {
+            pc.makingOffer = false;
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[Peer ${id}] Recovery attempt failed:`, error);
+    }
+  };
+
   pc.onnegotiationneeded = async () => {
     try {
       console.log('onnegotiationneeded for', id, 'state:', pc.signalingState);
@@ -397,6 +512,12 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
   const audioCheckInterval = setInterval(() => {
     if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
       clearInterval(audioCheckInterval);
+      if (audioRestoreTimeout) {
+        clearTimeout(audioRestoreTimeout);
+      }
+      if (recoveryTimeout) {
+        clearTimeout(recoveryTimeout);
+      }
       return;
     }
 
@@ -409,6 +530,11 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
         console.log(`[Peer ${id}] Periodic check: audio sender needs restoration`);
         checkAndRestoreAudio();
       }
+    }
+
+    // Также проверяем удаленные треки
+    if (pc.connectionState === 'connected' || pc.connectionState === 'connecting') {
+      checkAndRestoreRemoteTracks();
     }
   }, 2000);
 
@@ -427,6 +553,14 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
         lastVideoTrackId = trackId;
       }
     );
+    
+    // После получения трека проверяем, что все треки на месте
+    // Это особенно важно при восстановлении соединения через TURN
+    if (event.track.kind === 'audio') {
+      setTimeout(() => {
+        checkAndRestoreRemoteTracks();
+      }, 500);
+    }
   };
 
   pc.onicecandidate = (event) => {
@@ -441,8 +575,29 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
     console.log(`[Peer ${id}] ICE connection state changed:`, pc.iceConnectionState, 'connectionState:', pc.connectionState);
     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
       console.log(`[Peer ${id}] Connection established!`);
-    } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-      console.warn(`[Peer ${id}] Connection failed or disconnected:`, pc.iceConnectionState);
+      // При восстановлении соединения проверяем и восстанавливаем треки
+      setTimeout(() => {
+        checkAndRestoreAudio();
+        checkAndRestoreRemoteTracks();
+      }, 500);
+    } else if (pc.iceConnectionState === 'failed') {
+      console.warn(`[Peer ${id}] ICE connection failed, attempting recovery...`);
+      // При полном провале пытаемся восстановить соединение
+      if (recoveryTimeout) {
+        clearTimeout(recoveryTimeout);
+      }
+      recoveryTimeout = setTimeout(() => {
+        attemptRecovery();
+      }, 1000);
+    } else if (pc.iceConnectionState === 'disconnected') {
+      console.warn(`[Peer ${id}] ICE connection disconnected, attempting recovery...`);
+      // При разрыве соединения пытаемся восстановить
+      if (recoveryTimeout) {
+        clearTimeout(recoveryTimeout);
+      }
+      recoveryTimeout = setTimeout(() => {
+        attemptRecovery();
+      }, 2000);
     }
   };
 
@@ -450,8 +605,29 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
     console.log(`[Peer ${id}] Connection state changed:`, pc.connectionState);
     if (pc.connectionState === 'connected') {
       console.log(`[Peer ${id}] Peer connection connected!`);
-    } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-      console.warn(`[Peer ${id}] Peer connection failed or disconnected:`, pc.connectionState);
+      // При восстановлении соединения проверяем и восстанавливаем треки
+      setTimeout(() => {
+        checkAndRestoreAudio();
+        checkAndRestoreRemoteTracks();
+      }, 500);
+    } else if (pc.connectionState === 'failed') {
+      console.warn(`[Peer ${id}] Peer connection failed, attempting recovery...`);
+      // При полном провале пытаемся восстановить соединение
+      if (recoveryTimeout) {
+        clearTimeout(recoveryTimeout);
+      }
+      recoveryTimeout = setTimeout(() => {
+        attemptRecovery();
+      }, 1000);
+    } else if (pc.connectionState === 'disconnected') {
+      console.warn(`[Peer ${id}] Peer connection disconnected, attempting recovery...`);
+      // При разрыве соединения пытаемся восстановить
+      if (recoveryTimeout) {
+        clearTimeout(recoveryTimeout);
+      }
+      recoveryTimeout = setTimeout(() => {
+        attemptRecovery();
+      }, 2000);
     }
   };
 }
