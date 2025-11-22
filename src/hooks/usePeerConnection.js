@@ -697,6 +697,80 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
           }
         }
       }, 300);
+    } else if (event.track.kind === 'video') {
+      // КРИТИЧНО: Проверяем video/screen track после получения
+      // Это особенно важно для новых участников, которые должны получить screen track
+      setTimeout(() => {
+        checkAndRestoreRemoteTracks();
+        
+        const remoteStreams = appState.remoteStreams[id];
+        const receivers = pc.getReceivers();
+        const videoReceivers = receivers.filter(r => r.track && r.track.kind === 'video');
+        
+        console.log(`[Peer ${id}] Video track received, checking receivers:`, videoReceivers.length, {
+          trackId: event.track.id,
+          trackLabel: event.track.label,
+          receivers: videoReceivers.map(r => ({
+            trackId: r.track?.id,
+            label: r.track?.label
+          }))
+        });
+        
+        // Проверяем, что все video receivers правильно обработаны
+        for (const receiver of videoReceivers) {
+          if (receiver.track) {
+            const track = receiver.track;
+            // Проверяем, является ли это screen track по label
+            const isScreenByLabel = track.label && (
+              track.label.toLowerCase().includes('screen') ||
+              track.label.toLowerCase().includes('display') ||
+              track.label.toLowerCase().includes('monitor') ||
+              track.label.toLowerCase().includes('desktop') ||
+              track.label.toLowerCase().includes('window')
+            );
+            
+            // Проверяем, есть ли этот трек в remoteStreams
+            const inVideoStream = remoteStreams?.video?.getVideoTracks().some(t => t.id === track.id);
+            const inScreenStream = remoteStreams?.screen?.getVideoTracks().some(t => t.id === track.id);
+            
+            if (!inVideoStream && !inScreenStream) {
+              console.warn(`[Peer ${id}] CRITICAL: Video track received but not in remoteStreams!`, {
+                trackId: track.id,
+                label: track.label,
+                isScreenByLabel
+              });
+              
+              // Если это screen track, добавляем в screen stream
+              if (isScreenByLabel) {
+                const screenStream = new MediaStream([track]);
+                appState.setRemoteStreams(prev => ({
+                  ...prev,
+                  [id]: {
+                    ...(prev[id] || {}),
+                    screen: screenStream
+                  }
+                }));
+                console.log(`[Peer ${id}] Restored screen track in remoteStreams`);
+              } else {
+                // Если это video track, добавляем в video stream
+                const videoStream = new MediaStream([track]);
+                appState.setRemoteStreams(prev => ({
+                  ...prev,
+                  [id]: {
+                    ...(prev[id] || {}),
+                    video: videoStream
+                  }
+                }));
+                console.log(`[Peer ${id}] Restored video track in remoteStreams`);
+              }
+              
+              if (onRemoteStreamUpdate) {
+                setTimeout(() => onRemoteStreamUpdate(), 0);
+              }
+            }
+          }
+        }
+      }, 500);
     }
   };
 
@@ -716,6 +790,66 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
       setTimeout(() => {
         checkAndRestoreAudio();
         checkAndRestoreRemoteTracks();
+        
+        // КРИТИЧНО: Проверяем screen track после установления соединения
+        // Это особенно важно для новых участников
+        const receivers = pc.getReceivers();
+        const videoReceivers = receivers.filter(r => r.track && r.track.kind === 'video');
+        const remoteStreams = appState.remoteStreams[id];
+        
+        console.log(`[Peer ${id}] Checking video receivers after connection:`, videoReceivers.length);
+        
+        // Проверяем, что все video receivers правильно обработаны
+        for (const receiver of videoReceivers) {
+          if (receiver.track) {
+            const track = receiver.track;
+            const isScreenByLabel = track.label && (
+              track.label.toLowerCase().includes('screen') ||
+              track.label.toLowerCase().includes('display') ||
+              track.label.toLowerCase().includes('monitor') ||
+              track.label.toLowerCase().includes('desktop') ||
+              track.label.toLowerCase().includes('window')
+            );
+            
+            const inVideoStream = remoteStreams?.video?.getVideoTracks().some(t => t.id === track.id);
+            const inScreenStream = remoteStreams?.screen?.getVideoTracks().some(t => t.id === track.id);
+            
+            if (!inVideoStream && !inScreenStream) {
+              console.warn(`[Peer ${id}] CRITICAL: Video receiver track not in remoteStreams after connection!`, {
+                trackId: track.id,
+                label: track.label,
+                isScreenByLabel
+              });
+              
+              // Восстанавливаем трек в правильном stream
+              if (isScreenByLabel) {
+                const screenStream = new MediaStream([track]);
+                appState.setRemoteStreams(prev => ({
+                  ...prev,
+                  [id]: {
+                    ...(prev[id] || {}),
+                    screen: screenStream
+                  }
+                }));
+                console.log(`[Peer ${id}] Restored screen track after connection`);
+              } else {
+                const videoStream = new MediaStream([track]);
+                appState.setRemoteStreams(prev => ({
+                  ...prev,
+                  [id]: {
+                    ...(prev[id] || {}),
+                    video: videoStream
+                  }
+                }));
+                console.log(`[Peer ${id}] Restored video track after connection`);
+              }
+              
+              if (onRemoteStreamUpdate) {
+                setTimeout(() => onRemoteStreamUpdate(), 0);
+              }
+            }
+          }
+        }
         
         // Дополнительная проверка через 1 секунду после установления соединения
         setTimeout(() => {
@@ -751,6 +885,66 @@ function setupPeerConnectionHandlers(pc, id, appState, wsManager, addTrackToPeer
       setTimeout(() => {
         checkAndRestoreAudio();
         checkAndRestoreRemoteTracks();
+        
+        // КРИТИЧНО: Проверяем screen track после установления соединения
+        // Это особенно важно для новых участников
+        const receivers = pc.getReceivers();
+        const videoReceivers = receivers.filter(r => r.track && r.track.kind === 'video');
+        const remoteStreams = appState.remoteStreams[id];
+        
+        console.log(`[Peer ${id}] Checking video receivers after peer connection:`, videoReceivers.length);
+        
+        // Проверяем, что все video receivers правильно обработаны
+        for (const receiver of videoReceivers) {
+          if (receiver.track) {
+            const track = receiver.track;
+            const isScreenByLabel = track.label && (
+              track.label.toLowerCase().includes('screen') ||
+              track.label.toLowerCase().includes('display') ||
+              track.label.toLowerCase().includes('monitor') ||
+              track.label.toLowerCase().includes('desktop') ||
+              track.label.toLowerCase().includes('window')
+            );
+            
+            const inVideoStream = remoteStreams?.video?.getVideoTracks().some(t => t.id === track.id);
+            const inScreenStream = remoteStreams?.screen?.getVideoTracks().some(t => t.id === track.id);
+            
+            if (!inVideoStream && !inScreenStream) {
+              console.warn(`[Peer ${id}] CRITICAL: Video receiver track not in remoteStreams after peer connection!`, {
+                trackId: track.id,
+                label: track.label,
+                isScreenByLabel
+              });
+              
+              // Восстанавливаем трек в правильном stream
+              if (isScreenByLabel) {
+                const screenStream = new MediaStream([track]);
+                appState.setRemoteStreams(prev => ({
+                  ...prev,
+                  [id]: {
+                    ...(prev[id] || {}),
+                    screen: screenStream
+                  }
+                }));
+                console.log(`[Peer ${id}] Restored screen track after peer connection`);
+              } else {
+                const videoStream = new MediaStream([track]);
+                appState.setRemoteStreams(prev => ({
+                  ...prev,
+                  [id]: {
+                    ...(prev[id] || {}),
+                    video: videoStream
+                  }
+                }));
+                console.log(`[Peer ${id}] Restored video track after peer connection`);
+              }
+              
+              if (onRemoteStreamUpdate) {
+                setTimeout(() => onRemoteStreamUpdate(), 0);
+              }
+            }
+          }
+        }
         
         // Дополнительная проверка через 1 секунду после установления соединения
         setTimeout(() => {

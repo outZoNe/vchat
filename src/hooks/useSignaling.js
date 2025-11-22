@@ -351,10 +351,33 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
       setTimeout(() => {
         const receivers = pc.getReceivers();
         const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
+        const videoReceivers = receivers.filter(r => r.track && r.track.kind === 'video');
+        
         if (!audioReceiver && (pc.connectionState === 'connected' || pc.connectionState === 'connecting')) {
           console.warn(`[Peer ${msg.from}] No audio receiver found after answer, may need renegotiation`);
         } else if (audioReceiver && audioReceiver.track) {
           console.log(`[Peer ${msg.from}] Audio receiver found after answer, trackId: ${audioReceiver.track.id}, readyState: ${audioReceiver.track.readyState}`);
+        }
+        
+        // КРИТИЧНО: Проверяем video receivers (могут быть video и screen)
+        console.log(`[Peer ${msg.from}] Video receivers after answer:`, videoReceivers.length, videoReceivers.map(r => ({
+          trackId: r.track?.id,
+          label: r.track?.label,
+          readyState: r.track?.readyState
+        })));
+        
+        // Проверяем remoteStreams - должны быть все треки, включая screen
+        const remoteStreams = appState.remoteStreams[msg.from];
+        if (remoteStreams) {
+          console.log(`[Peer ${msg.from}] Remote streams after answer:`, {
+            hasAudio: !!remoteStreams.audio,
+            hasVideo: !!remoteStreams.video,
+            hasScreen: !!remoteStreams.screen,
+            videoTracks: remoteStreams.video?.getVideoTracks().length || 0,
+            screenTracks: remoteStreams.screen?.getVideoTracks().length || 0
+          });
+        } else {
+          console.warn(`[Peer ${msg.from}] No remote streams found after answer`);
         }
       }, 1000);
     } catch (error) {
