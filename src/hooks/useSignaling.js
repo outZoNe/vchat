@@ -345,6 +345,18 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       wsManager.send({type: 'answer', answer: pc.localDescription, to: msg.from});
+      
+      // Проверяем receivers после создания answer
+      // Это важно, так как иногда ontrack event может не сработать сразу
+      setTimeout(() => {
+        const receivers = pc.getReceivers();
+        const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
+        if (!audioReceiver && (pc.connectionState === 'connected' || pc.connectionState === 'connecting')) {
+          console.warn(`[Peer ${msg.from}] No audio receiver found after answer, may need renegotiation`);
+        } else if (audioReceiver && audioReceiver.track) {
+          console.log(`[Peer ${msg.from}] Audio receiver found after answer, trackId: ${audioReceiver.track.id}, readyState: ${audioReceiver.track.readyState}`);
+        }
+      }, 1000);
     } catch (error) {
       console.error('Error handling offer:', error);
     }
@@ -365,6 +377,18 @@ export function useSignaling(appState, wsManager, peerConnectionManager, onRemot
         console.log('Set remote description from answer, signalingState:', pc.signalingState);
         await processBufferedIceCandidates(msg.from, pc, appState);
         console.log('Processed buffered ICE candidates for:', msg.from);
+        
+        // Проверяем receivers после установки remote description
+        // Это важно, так как иногда ontrack event может не сработать сразу
+        setTimeout(() => {
+          const receivers = pc.getReceivers();
+          const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
+          if (!audioReceiver && (pc.connectionState === 'connected' || pc.connectionState === 'connecting')) {
+            console.warn(`[Peer ${msg.from}] No audio receiver found after answer, may need renegotiation`);
+          } else if (audioReceiver && audioReceiver.track) {
+            console.log(`[Peer ${msg.from}] Audio receiver found after answer, trackId: ${audioReceiver.track.id}, readyState: ${audioReceiver.track.readyState}`);
+          }
+        }, 1000);
       } else {
         console.warn('Received answer but signalingState != have-local-offer:', pc.signalingState, 'from:', msg.from);
       }
