@@ -1,0 +1,62 @@
+networks:
+  vchat_network:
+    driver: bridge
+    name: vchat_network
+
+services:
+  api_server:
+    build:
+      context: server/
+      dockerfile: ${NODE_ENV:-prod}.Dockerfile
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${NODE_ENV:-prod}
+      - ANNOUNCED_IP=${ANNOUNCED_IP}
+      - ROOMS_LIST=${ROOMS_LIST}
+      - MEDIASOUP_MIN_PORT=${MEDIASOUP_MIN_PORT}
+      - MEDIASOUP_MAX_PORT=${MEDIASOUP_MAX_PORT}
+      - REACT_APP_CLIENT_VERSION=${REACT_APP_CLIENT_VERSION}
+      - SERVER_VERSION=${SERVER_VERSION}
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    ports:
+      - "${MEDIASOUP_MIN_PORT}-${MEDIASOUP_MAX_PORT}:${MEDIASOUP_MIN_PORT}-${MEDIASOUP_MAX_PORT}"
+    networks:
+      - vchat_network
+
+  frontend:
+    image: nginx:1.29.3
+    restart: unless-stopped
+    environment:
+      - APP_DOMAIN=${REACT_APP_DOMAIN}
+      - NGINX_CONFIG_FILE=${NGINX_CONFIG_FILE}
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/prod.default.conf.template:/etc/nginx/conf.d/prod.default.conf.template
+      - ./docker/nginx/dev.default.conf.template:/etc/nginx/conf.d/dev.default.conf.template
+      - ./docker/nginx/entrypoint.sh:/docker-entrypoint.sh
+      - ./build:/var/www/html
+      - ./docker/certbot/www:/var/www/certbot
+      - ./docker/certbot/conf:/etc/nginx/ssl
+    entrypoint: [ "/bin/sh", "/docker-entrypoint.sh" ]
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - api_server
+    networks:
+      - vchat_network
+
+  npm:
+    image: node:20.17
+    working_dir: /var/www/html
+    entrypoint: [ "npm" ]
+    volumes:
+      - "./:/var/www/html"
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./docker/certbot/www/:/var/www/certbot/
+      - ./docker/certbot/conf/:/etc/letsencrypt/

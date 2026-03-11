@@ -1,0 +1,19 @@
+trailingComma: "es5"   # висячие запятые в объектах/массивах
+tabWidth: 2             # ширина табов
+semi: true              # добавлять ;
+singleQuote: true       # одинарные кавычки
+printWidth: 120         # максимальная длина строки
+useTabs: false          # использовать пробелы
+bracketSpacing: true    # { a: 1 } вместо {a:1}
+arrowParens: "always"   # (x) => {} вместо x => {}
+endOfLine: lf           # Unix-стиль переносов строк
+embeddedLanguageFormatting: "auto"
+
+# --- HTML / JSX / TSX ---
+jsxSingleQuote: false   # в jsx обычно двойные
+jsxBracketSameLine: false
+singleAttributePerLine: true  # переносить каждый prop на новую строку
+
+# --- ПАРСЕРЫ (автоопределение) ---
+proseWrap: "preserve"   # не трогать переносы в markdown
+htmlWhitespaceSensitivity: "css"

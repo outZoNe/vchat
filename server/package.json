@@ -1,0 +1,16 @@
+{
+    "name": "vchat-server",
+    "version": "1.0.0",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "author": "Roman Sergeev",
+    "license": "MIT",
+    "description": "",
+    "dependencies": {
+        "mediasoup": "^3.19.3",
+        "ws": "^8.19.0"
+    }
+}

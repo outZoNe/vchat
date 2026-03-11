@@ -1,0 +1,47 @@
+html {
+  background-color: #2b2d31;
+  overflow-x: hidden;
+}
+
+body {
+  background-color: #2b2d31;
+  color: #f2f3f5;
+  overflow-x: hidden;
+}
+
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+@keyframes speakingGlow {
+  0% {
+    box-shadow: 0 0 10px 2px rgba(67, 181, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 5px rgba(67, 181, 129, 0.7);
+  }
+  100% {
+    box-shadow: 0 0 10px 2px rgba(67, 181, 129, 0.4);
+  }
+}
+
+.speaking {
+  animation: speakingGlow 0.6s infinite ease-in-out;
+}
+
+.peer-container {
+  position: relative;
+  width: 240px;
+  height: 160px;
+}
+
+.peer-container-pinned {
+  position: fixed;
+  top: 70px;
+  width: auto;
+  height: calc(100% - 135px);
+  z-index: 100;
+}

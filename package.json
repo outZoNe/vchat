@@ -1,0 +1,82 @@
+{
+    "name": "vchat",
+    "version": "2.0.2",
+    "description": "Simple video chat",
+    "author": "Roman Sergeev",
+    "license": "MIT",
+    "main": "electron/main.js",
+    "homepage": "./",
+    "scripts": {
+        "start": "react-scripts start",
+        "build": "cross-env GENERATE_SOURCEMAP=false react-scripts build",
+        "eject": "react-scripts eject",
+        "electron:dev": "concurrently \"cross-env BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
+        "electron:build": "npm run build && electron-builder",
+        "electron:build:win": "npm run build && electron-builder --win"
+    },
+    "dependencies": {
+        "@chakra-ui/react": "^2.10.9",
+        "@emotion/react": "^11.14.0",
+        "@emotion/styled": "^11.14.1",
+        "framer-motion": "^12.23.25",
+        "mediasoup-client": "^3.18.1",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "react-icons": "^5.5.0",
+        "react-redux": "^9.2.0",
+        "react-scripts": "5.0.1",
+        "redux": "^5.0.1"
+    },
+    "devDependencies": {
+        "concurrently": "^9.1.2",
+        "cross-env": "^10.1.0",
+        "electron": "^35.1.2",
+        "electron-builder": "^26.0.12",
+        "prettier": "^3.7.3",
+        "wait-on": "^8.0.3"
+    },
+    "build": {
+        "appId": "com.vchat.app",
+        "productName": "VChat",
+        "files": [
+            "build/**/*",
+            "electron/**/*",
+            "package.json"
+        ],
+        "extraMetadata": {
+            "main": "electron/main.js"
+        },
+        "directories": {
+            "buildResources": "public"
+        },
+        "mac": {
+            "target": "dmg",
+            "icon": "public/favicon.ico"
+        },
+        "win": {
+            "target": "portable",
+            "icon": "public/favicon.ico"
+        },
+        "linux": {
+            "target": "AppImage",
+            "icon": "public/favicon.ico"
+        }
+    },
+    "eslintConfig": {
+        "extends": [
+            "react-app"
+        ]
+    },
+    "browserslist": {
+        "production": [
+            ">0.2%",
+            "not dead",
+            "not op_mini all"
+        ],
+        "development": [
+            "last 1 chrome version",
+            "last 1 firefox version",
+            "last 1 safari version"
+        ]
+    }
+}
