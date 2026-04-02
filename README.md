@@ -13,6 +13,17 @@
 снизить нагрузку на трафик и избежать создания
 `mesh-сети` между всеми участниками конференции.
 
+<p align="center">
+  <a href="docs/1.png" target="_blank">
+    <img src="docs/1.png" width="200" style="margin: 5px;">
+  </a>
+  <a href="docs/2.png" target="_blank">
+    <img src="docs/2.png" width="200" style="margin: 5px;">
+  </a>
+  <a href="docs/3.png" target="_blank">
+    <img src="docs/3.png" width="200" style="margin: 5px;">
+  </a>
+</p>
 ------------------------------------------------------------------------
 
 ## 🚀 Как запустить
