@@ -8,6 +8,26 @@ const {
   systemPreferences,
 } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+function loadEnv() {
+  const envPath = path.join(__dirname, '..', '.env');
+  if (!fs.existsSync(envPath)) return {};
+  const env = {};
+  for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex === -1) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
 
 async function getActiveWindowSource() {
   try {
@@ -27,9 +47,7 @@ const isDev = !app.isPackaged;
 let mainWindow = null;
 
 function createWindow() {
-  const iconPath = isDev
-    ? path.join(__dirname, '..', 'public', 'favicon.ico')
-    : path.join(__dirname, '..', 'build', 'favicon.ico');
+  const iconPath = path.join(__dirname, '..', 'public', 'favicon.ico');
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -49,7 +67,16 @@ function createWindow() {
 
   mainWindow.setMenuBarVisibility(false);
 
-  const url = isDev ? 'http://localhost:3000' : `file://${path.join(__dirname, '..', 'build', 'index.html')}`;
+  let url;
+  if (isDev) {
+    url = 'http://localhost:3000';
+  } else {
+    const env = loadEnv();
+    const domain = env.REACT_APP_DOMAIN || 'localhost';
+    const port = env.REACT_APP_PORT || '443';
+    const protocol = port === '443' ? 'https' : 'http';
+    url = port === '443' || port === '80' ? `${protocol}://${domain}` : `${protocol}://${domain}:${port}`;
+  }
   mainWindow.loadURL(url).catch();
 
   mainWindow.once('ready-to-show', () => mainWindow.show());

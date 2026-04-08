@@ -11,8 +11,8 @@
         "build": "cross-env GENERATE_SOURCEMAP=false react-scripts build",
         "eject": "react-scripts eject",
         "electron:dev": "concurrently \"cross-env BROWSER=none npm start\" \"wait-on http://localhost:3000 && electron .\"",
-        "electron:build": "npm run build && electron-builder",
-        "electron:build:win": "npm run build && electron-builder --win"
+        "electron:build": "electron-builder",
+        "electron:build:win": "electron-builder --win"
     },
     "dependencies": {
         "@chakra-ui/react": "^2.10.9",
@@ -39,8 +39,9 @@
         "appId": "com.vchat.app",
         "productName": "VChat",
         "files": [
-            "build/**/*",
             "electron/**/*",
+            "public/favicon.ico",
+            ".env",
             "package.json"
         ],
         "extraMetadata": {
