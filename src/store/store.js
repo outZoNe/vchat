@@ -48,6 +48,7 @@ const initialState = {
   mutePeersKey: loadKeyFromStorage('mutePeersKey', 'Numpad5'),
   switchScreen: loadKeyFromStorage('switchScreen', 'Numpad9'),
   echoCancellation: loadEchoCancellationFromStorage(),
+  chatOpen: loadKeyFromStorage('chatOpen', 'true') === 'true',
 };
 
 // Вспомогательная функция для глубокого обновления вложенных объектов
@@ -116,6 +117,10 @@ store.subscribe(() => {
   } catch (error) {
     console.warn('Не удалось сохранить echoCancellation в localStorage:', error);
   }
+
+  try {
+    localStorage.setItem('chatOpen', state.chatOpen ? 'true' : 'false');
+  } catch {}
 
   try {
     localStorage.setItem('muteMicKey', state.muteMicKey);

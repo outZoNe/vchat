@@ -5,6 +5,7 @@ const {
   globalShortcut,
   desktopCapturer,
   session,
+  shell,
   systemPreferences,
 } = require('electron');
 const path = require('path');
@@ -78,6 +79,11 @@ function createWindow() {
     url = port === '443' || port === '80' ? `${protocol}://${domain}` : `${protocol}://${domain}:${port}`;
   }
   mainWindow.loadURL(url).catch();
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('closed', () => {

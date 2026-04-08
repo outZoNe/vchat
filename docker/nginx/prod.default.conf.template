@@ -16,7 +16,7 @@ server {
 }
 
 server {
-    client_max_body_size 128M;
+    client_max_body_size 512M;
     listen 443 ssl;
     server_name ${APP_DOMAIN};
     ssl_certificate /etc/nginx/ssl/live/${APP_DOMAIN}/fullchain.pem;
@@ -43,6 +43,21 @@ server {
         autoindex on;
         autoindex_exact_size off;
         autoindex_localtime on;
+    }
+
+    # Uploaded files
+    location /uploads/ {
+        root /var/www/html;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # API
+    location /api/ {
+        proxy_pass http://api_server:8081/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        client_max_body_size 512M;
     }
 
     # WebSocket

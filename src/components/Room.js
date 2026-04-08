@@ -1,19 +1,23 @@
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Box } from '@chakra-ui/react';
+import { Box, IconButton, Tooltip } from '@chakra-ui/react';
 import * as mediasoupClient from 'mediasoup-client';
 import ControlsPanel from './ControlsPanel';
+import ChatPanel from './ChatPanel';
 import { APP_COLORS } from '../utils/theme';
 import { WS } from '../services/WebSocketManager';
 import RemotePeer from './RemotePeer';
-import { FaUser } from 'react-icons/fa';
+import { FaCommentDots, FaUser } from 'react-icons/fa';
 import { showToast } from '../utils/helper';
+import { updateStateByPath } from '../store/actions';
 
 const Room = () => {
+  const dispatch = useDispatch();
   const currentRoom = useSelector((s) => s.currentRoom);
   const myUserName = useSelector((s) => s.userName);
   const echoCancellationFlag = useSelector((s) => s.echoCancellation);
   const localVideo = useSelector((s) => s.localVideo);
+  const isChatOpen = useSelector((s) => s.chatOpen);
   const deviceRef = useRef(null);
   const localStreamRef = useRef(null);
   const localAudioRef = useRef(null);
@@ -344,80 +348,116 @@ const Room = () => {
       bg={APP_COLORS.BACKGROUND_TERTIARY}
       pb="60px"
       display="flex"
-      flexDirection="column"
-      alignItems="center"
-      gap={4}
+      height="calc(100vh - 60px)"
     >
-      <Box
-        display="flex"
-        flexWrap="wrap"
-        justifyContent="center"
-        gap={4}
-        width="100%"
-        marginTop={4}
+      {/* Кнопка чата */}
+      <Tooltip
+        label={isChatOpen ? 'Скрыть чат' : 'Показать чат'}
+        hasArrow
+        placement="left"
       >
-        {/* Локальное видео */}
+        <IconButton
+          icon={<FaCommentDots />}
+          position="fixed"
+          top="70px"
+          right={isChatOpen ? '360px' : '10px'}
+          transition="right 0.2s ease"
+          zIndex={1001}
+          size="md"
+          borderRadius="full"
+          bg={isChatOpen ? APP_COLORS.BLURPLE : APP_COLORS.BACKGROUND_PRIMARY}
+          color={isChatOpen ? 'white' : APP_COLORS.TEXT_SECONDARY}
+          _hover={{ bg: isChatOpen ? APP_COLORS.BLURPLE_HOVER : APP_COLORS.BACKGROUND_SECONDARY }}
+          boxShadow="md"
+          onClick={() => dispatch(updateStateByPath('chatOpen', !isChatOpen))}
+          aria-label="Открыть чат"
+        />
+      </Tooltip>
+
+      {/* Видео-сетка */}
+      <Box
+        flex={1}
+        display="flex"
+        flexDirection="column"
+        alignItems="center"
+        gap={4}
+        overflowY="auto"
+      >
         <Box
-          position="relative"
-          width="240px"
-          height="160px"
-          borderRadius="12px"
-          overflow="hidden"
-          boxShadow="0 4px 12px rgba(0,0,0,0.3)"
-          border={`2px solid ${APP_COLORS.BLURPLE}`}
           display="flex"
-          alignItems="center"
+          flexWrap="wrap"
           justifyContent="center"
-          bg="gray.700"
+          gap={4}
+          width="100%"
+          marginTop={4}
         >
-          {localVideo?.srcObject?.getVideoTracks()?.length ? (
-            <video
-              ref={localVideoRef}
+          {/* Локальное видео */}
+          <Box
+            position="relative"
+            width="240px"
+            height="160px"
+            borderRadius="12px"
+            overflow="hidden"
+            boxShadow="0 4px 12px rgba(0,0,0,0.3)"
+            border={`2px solid ${APP_COLORS.BLURPLE}`}
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            bg="gray.700"
+          >
+            {localVideo?.srcObject?.getVideoTracks()?.length ? (
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <FaUser
+                size={80}
+                color="gray"
+              />
+            )}
+            <audio
+              ref={localAudioRef}
               autoPlay
               playsInline
               muted
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
-          ) : (
-            <FaUser
-              size={80}
-              color="gray"
-            />
-          )}
-          <audio
-            ref={localAudioRef}
-            autoPlay
-            playsInline
-            muted
-          />
-          <Box
-            position="absolute"
-            top={2}
-            color={APP_COLORS.RED}
-            fontSize="12px"
-            bg="rgba(0,0,0,0.4)"
-            px={2}
-            py={1}
-            borderRadius="6px"
-          >
-            {myUserName ?? '(Вы)'}
+            <Box
+              position="absolute"
+              top={2}
+              color={APP_COLORS.RED}
+              fontSize="12px"
+              bg="rgba(0,0,0,0.4)"
+              px={2}
+              py={1}
+              borderRadius="6px"
+            >
+              {myUserName ?? '(Вы)'}
+            </Box>
           </Box>
-        </Box>
 
-        {[...remotePeers.values()].map((peer) => (
-          <RemotePeer
-            key={peer.peerId}
-            peer={peer}
-            isPinned={pinnedPeerId === peer.peerId}
-            onTogglePin={() => setPinnedPeerId((prev) => (prev === peer.peerId ? null : peer.peerId))}
-          />
-        ))}
+          {[...remotePeers.values()].map((peer) => (
+            <RemotePeer
+              key={peer.peerId}
+              peer={peer}
+              isPinned={pinnedPeerId === peer.peerId}
+              onTogglePin={() => setPinnedPeerId((prev) => (prev === peer.peerId ? null : peer.peerId))}
+            />
+          ))}
+        </Box>
       </Box>
+
+      {/* Чат-панель */}
+      <ChatPanel isOpen={isChatOpen} />
 
       <ControlsPanel
         localStreamRef={localStreamRef}
         sendTransportRef={sendTransportRef}
         audioProducerRef={audioProducerRef}
+        isChatOpen={isChatOpen}
       />
     </Box>
   );

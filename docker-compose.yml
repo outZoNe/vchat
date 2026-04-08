@@ -1,14 +1,37 @@
+volumes:
+  uploads:
+
 networks:
   vchat_network:
     driver: bridge
     name: vchat_network
 
 services:
+  vchat_postgres:
+    container_name: vchat_postgres
+    build:
+      context: ./docker/postgres
+    environment:
+      POSTGRES_HOST: "localhost"
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres/data/pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - vchat_network
+
   api_server:
     build:
       context: server/
       dockerfile: ${NODE_ENV:-prod}.Dockerfile
     restart: unless-stopped
+    depends_on:
+      - vchat_postgres
     environment:
       - NODE_ENV=${NODE_ENV:-prod}
       - ANNOUNCED_IP=${ANNOUNCED_IP}
@@ -17,10 +40,17 @@ services:
       - MEDIASOUP_MAX_PORT=${MEDIASOUP_MAX_PORT}
       - REACT_APP_CLIENT_VERSION=${REACT_APP_CLIENT_VERSION}
       - SERVER_VERSION=${SERVER_VERSION}
+      - DB_HOST=vchat_postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
     volumes:
       - ./server:/app
       - /app/node_modules
+      - uploads:/app/uploads
     ports:
+      - "8081:8081"
       - "${MEDIASOUP_MIN_PORT}-${MEDIASOUP_MAX_PORT}:${MEDIASOUP_MIN_PORT}-${MEDIASOUP_MAX_PORT}"
     networks:
       - vchat_network
@@ -37,6 +67,7 @@ services:
       - ./docker/nginx/dev.default.conf.template:/etc/nginx/conf.d/dev.default.conf.template
       - ./docker/nginx/entrypoint.sh:/docker-entrypoint.sh
       - ./build:/var/www/html
+      - uploads:/var/www/html/uploads
       - ./docker/certbot/www:/var/www/certbot
       - ./docker/certbot/conf:/etc/nginx/ssl
     entrypoint: [ "/bin/sh", "/docker-entrypoint.sh" ]

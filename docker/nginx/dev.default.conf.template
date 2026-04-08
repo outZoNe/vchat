@@ -2,6 +2,7 @@ server {
     listen 80;
     server_name _ ${APP_DOMAIN};
     server_tokens off;
+    client_max_body_size 512M;
     root /var/www/html;
     index index.html;
 
@@ -33,6 +34,21 @@ server {
         autoindex on;
         autoindex_exact_size off;
         autoindex_localtime on;
+    }
+
+    # Uploaded files
+    location /uploads/ {
+        root /var/www/html;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # API
+    location /api/ {
+        proxy_pass http://api_server:8081/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        client_max_body_size 512M;
     }
 
     # WebSocket

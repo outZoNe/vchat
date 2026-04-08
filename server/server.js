@@ -1,5 +1,13 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import RoomManager from './services/RoomManager.js';
+import { AppDataSource } from './db/data-source.js';
+import { Message } from './db/entities/Message.js';
+import { startApi } from './api.js';
+
+// Init DB + API
+await AppDataSource.initialize();
+console.log('DB connected');
+await startApi();
 
 const wss = new WebSocketServer({ port: 8080 });
 const roomManager = new RoomManager();
@@ -360,6 +368,25 @@ wss.on('connection', (ws) => {
         case 'getStats':
           send(ws, 'serverStats', { data: roomManager.getStats() });
           break;
+
+        case 'sendChatMessage': {
+          if (!peer.roomName || !data?.text?.trim()) break;
+          const msg = AppDataSource.getRepository(Message).create({
+            roomName: peer.roomName,
+            username: peer.userName || 'Anonymous',
+            text: data.text.trim().slice(0, 2000),
+          });
+          const saved = await AppDataSource.getRepository(Message).save(msg);
+          const chatMsg = {
+            id: saved.id,
+            username: saved.username,
+            text: saved.text,
+            createdAt: saved.createdAt,
+            attachments: [],
+          };
+          broadcastToRoom(peer.roomName, 'chatMessage', { data: chatMsg });
+          break;
+        }
 
         case 'ping':
           send(ws, 'pong');

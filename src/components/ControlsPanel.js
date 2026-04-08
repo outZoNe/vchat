@@ -84,7 +84,7 @@ const DeviceMenu = ({ devices, selectedId, onSelect, onOpen }) => (
   </Menu>
 );
 
-const ControlsPanel = ({ localStreamRef, sendTransportRef, audioProducerRef }) => {
+const ControlsPanel = ({ localStreamRef, sendTransportRef, audioProducerRef, isChatOpen }) => {
   const dispatch = useDispatch();
   const globalMuted = useSelector((s) => s.globalMuted);
   const currentRoom = useSelector((s) => s.currentRoom);
@@ -445,8 +445,8 @@ const ControlsPanel = ({ localStreamRef, sendTransportRef, audioProducerRef }) =
       position="fixed"
       bottom={0}
       left={isDesktop && menuIsOpen ? SIZES.SIDEBAR_WIDTH : '0px'}
-      right={0}
-      transition="left 0.2s ease"
+      right={isChatOpen ? '350px' : '0px'}
+      transition="left 0.2s ease, right 0.2s ease"
       gap={controlsGap}
       bg={APP_COLORS.BACKGROUND_PRIMARY}
       p="12px"
