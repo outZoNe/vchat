@@ -262,6 +262,7 @@ const ChatPanel = ({ isOpen }) => {
       bg={APP_COLORS.BACKGROUND_PRIMARY}
       borderLeft={`1px solid ${APP_COLORS.BACKGROUND_SECONDARY}`}
       position="relative"
+      zIndex={150}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
