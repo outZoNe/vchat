@@ -1,0 +1,29 @@
+[package]
+name = "vchat"
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dependencies]
+rtc = "0.21.1"
+sansio = "1.0.1"
+sfu = "=0.5.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
+tokio-tungstenite = "0.30.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+bytes = "1"
+futures-util = "0.3"
+parking_lot = "0.12"
+socket2 = { version = "0.5", features = ["all"] }
+dotenvy = "0.15"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

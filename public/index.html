@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VChat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <button type="button" class="burger-btn" id="sidebarToggle" aria-label="Комнаты" aria-controls="sidebar" aria-expanded="false" title="Комнаты">
+      <span class="burger-lines" aria-hidden="true"></span>
+    </button>
+    <div class="logo">VChat</div>
+  </div>
+  <div class="header-right">
+    <span class="header-name" id="headerName">Anonymous</span>
+    <button type="button" class="settings-btn" id="settingsBtn" aria-label="Настройки" title="Настройки">⚙️</button>
+  </div>
+</header>
+
+<div class="app">
+  <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+  <aside class="sidebar" id="sidebar">
+    <nav class="rooms" id="roomsList"></nav>
+  </aside>
+
+  <main class="main">
+    <div class="stage" id="stage">
+      <div class="empty-state" id="emptyState">
+        <h1>Добро пожаловать!</h1>
+        <p>👈 Выберите комнату из списка слева, чтобы начать общение</p>
+      </div>
+      <div class="video-grid hidden" id="videoGrid"></div>
+    </div>
+
+    <div class="controls hidden" id="controls">
+      <div class="ctrl-group">
+        <button type="button" class="ctrl-btn" id="micBtn" title="Микрофон">🎤</button>
+        <button type="button" class="ctrl-picker" id="micPickerBtn" title="Выбор микрофона" aria-label="Выбор микрофона" aria-haspopup="menu" aria-expanded="false">▾</button>
+        <div class="device-menu hidden" id="micMenu" role="menu"></div>
+      </div>
+      <div class="ctrl-group">
+        <button type="button" class="ctrl-btn" id="deafenBtn" title="Наушники">🎧</button>
+        <button type="button" class="ctrl-picker" id="speakerPickerBtn" title="Выбор динамиков" aria-label="Выбор динамиков" aria-haspopup="menu" aria-expanded="false">▾</button>
+        <div class="device-menu hidden" id="speakerMenu" role="menu"></div>
+      </div>
+      <div class="ctrl-group">
+        <button type="button" class="ctrl-btn" id="camBtn" title="Камера">📷</button>
+        <button type="button" class="ctrl-picker" id="camPickerBtn" title="Выбор камеры" aria-label="Выбор камеры" aria-haspopup="menu" aria-expanded="false">▾</button>
+        <div class="device-menu hidden" id="camMenu" role="menu"></div>
+      </div>
+      <button type="button" class="ctrl-btn" id="screenBtn" title="Демонстрация экрана">🖥️</button>
+      <button type="button" class="ctrl-btn ctrl-leave" id="leaveBtn" title="Выйти">📞</button>
+    </div>
+  </main>
+</div>
+
+<div class="modal hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="modal-backdrop" id="modalBackdrop"></div>
+  <div class="modal-card">
+    <h2 id="settingsTitle">Настройки</h2>
+    <label class="field">
+      <span>Имя</span>
+      <input type="text" id="nameInput" maxlength="32" placeholder="Anonymous" autocomplete="nickname">
+    </label>
+    <label class="field field-check">
+      <input type="checkbox" id="rnnoiseInput" checked>
+      <span>Включить шумоподавление</span>
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn-secondary" id="cancelSettingsBtn">Отмена</button>
+      <button type="button" class="btn-primary" id="saveSettingsBtn">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+target
+.git
+.idea
+.cursor
+.env
+*.md
+Dockerfile
+docker-compose.yml
+Caddyfile

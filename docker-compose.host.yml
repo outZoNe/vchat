@@ -1,0 +1,14 @@
+# Прод (Linux VPS): UDP без docker-proxy.
+# В .env: COMPOSE_FILE=docker-compose.yml:docker-compose.host.yml
+services:
+  sfu:
+    network_mode: host
+    ports: !reset []
+    networks: !reset
+
+  caddy:
+    network_mode: host
+    ports: !reset []
+    networks: !reset
+    environment:
+      SFU_UPSTREAM: 127.0.0.1:8080

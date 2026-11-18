@@ -1,0 +1,47 @@
+services:
+  sfu:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      WS_ADDR: 0.0.0.0:8080
+      MEDIA_BIND_IP: 0.0.0.0
+      MEDIA_ADDR: ${MEDIA_IP:-127.0.0.1}:3478
+      WORKER_COUNT: ${WORKER_COUNT:-4}
+      MAX_CLIENTS: ${MAX_CLIENTS:-10000}
+    expose:
+      - "8080"
+    ports:
+      # Базовый UDP-порт 3478, до 16 воркеров
+      - "3478-3493:3478-3493/udp"
+    networks:
+      - vchat
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - sfu
+    env_file: .env
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      SFU_UPSTREAM: ${SFU_UPSTREAM:-sfu:8080}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./public:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - vchat
+
+networks:
+  vchat:
+
+volumes:
+  caddy_data:
+  caddy_config:
